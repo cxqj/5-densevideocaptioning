@@ -11,7 +11,7 @@ from model import *
 import sys
 
 reload(sys)
-sys.setdefaultencoding('utf-8')
+sys.setdefaultencoding('utf-8')  # 设置编码格式为utf-8
 sys.path.insert(0, './densevid_eval-master')
 sys.path.insert(0, './densevid_eval-master/coco-caption')
 #from evaluator import *
@@ -262,17 +262,17 @@ def train(options):
     data_provision = DataProvision(options)
 
     batch_size = options['batch_size']
-    max_epochs = options['max_epochs']
-    init_epoch = options['init_epoch']
+    max_epochs = options['max_epochs']   # 100 有点多啊
+    init_epoch = options['init_epoch']   
     lr_init = options['learning_rate']
-    status_file = options['status_file']
+    status_file = options['status_file']   # status.json
     lr = lr_init
     lr_decay_factor = options['lr_decay_factor']
     n_epoch_to_decay = options['n_epoch_to_decay'] # when to decay the lr
     next_epoch_to_decay = n_epoch_to_decay.pop()
 
-    n_iters_per_epoch = data_provision.get_size('train') // batch_size
-    eval_in_iters = n_iters_per_epoch // options['n_eval_per_epoch']
+    n_iters_per_epoch = data_provision.get_size('train') // batch_size    # 求出一轮的迭代次数
+    eval_in_iters = n_iters_per_epoch // options['n_eval_per_epoch']    # 多少次迭代时进行eval，其实就是一轮的迭代次数
 
     #############################################
     # build model #
@@ -302,7 +302,7 @@ def train(options):
     t_summary = tf.summary.merge_all()
     t_lr = tf.placeholder(tf.float32)
 
-    
+    # 论文中使用的时adam优化器
     if options['solver'] == 'adam':
         optimizer = tf.train.AdamOptimizer(learning_rate=t_lr)
     elif options['solver'] == 'sgd':
