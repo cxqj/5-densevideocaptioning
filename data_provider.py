@@ -20,20 +20,24 @@ class DataProvision:
         self._options = options
         self._splits = {'train':'train', 'val':'val_1'}
 
-        np.random.seed(options['random_seed'])
+        np.random.seed(options['random_seed'])  # 101
         random.seed(options['random_seed'])
 
         self._ids = {}  # video ids
         captions = {}
         self._sizes = {}
         print('Loading paragraph data ...')
+        
+         # ids.txt保存的是对应split的视频id
+         #   其中训练视频10009,测试视频4917
         for split in self._splits:
-            tmp_ids = open(os.path.join(self._options['caption_data_root'], split, 'ids.txt'), 'r').readlines()
+            tmp_ids = open(os.path.join(self._options['caption_data_root'], split, 'ids.txt'), 'r').readlines()   
             tmp_ids = [id.strip() for id in tmp_ids]
             self._ids[split] = tmp_ids
 
             self._sizes[split] = len(self._ids[split])
             
+            # encoded_sentences.json中保存的是将单词编码为对应id后的结果
             tmp_captions = json.load(open(os.path.join(self._options['caption_data_root'], split, 'encoded_sentences.json'), 'r'))
             captions[split] = {tmp_ids[i]:tmp_captions[i] for i in range(len(tmp_ids))}
 
@@ -52,6 +56,8 @@ class DataProvision:
 
         # load label weight data
         print('Loading label weight data ...')
+        
+        # 120个权重 [0.99,0.003]暂时不知道这两个玩意干啥的
         self._proposal_weight = json.load(open(os.path.join(self._options['caption_data_root'], 'anchors', 'weights.json')))
         if self._options['proposal_tiou_threshold'] != 0.5:
             raise ValueError('Might need to recalculate class weights to handle imbalance data')
@@ -66,7 +72,7 @@ class DataProvision:
         anchor_path = os.path.join(self._options['caption_data_root'], 'anchors', 'anchors.txt')
         anchors = open(anchor_path).readlines()
         self._anchors = [float(line.strip()) for line in anchors]
-        # time stamp data
+        # -----------------------------------------加载标注文件------------------------------------------#
         print('Loading localization data ...')
         self._localization = {}
         for split in self._splits:
@@ -76,7 +82,7 @@ class DataProvision:
 
         print('Done loading.')
 
-            
+ #------------------------------------------------------------------------------------------------#           
 
     def get_size(self, split):
         return self._sizes[split]
