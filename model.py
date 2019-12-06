@@ -11,7 +11,7 @@ class CaptionModel(object):
     def __init__(self, options):
         self.options = options
         self.initializer = tf.random_uniform_initializer(
-            minval = - self.options['init_scale'],
+            minval = - self.options['init_scale'],  # 0.08
             maxval = self.options['init_scale'])
 
         tf.set_random_seed(options['random_seed'])
