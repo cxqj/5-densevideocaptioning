@@ -282,7 +282,7 @@ def train(options):
     print('Build model for training ...')
     model = CaptionModel(options)
     inputs, outputs = model.build_train()
-    t_loss = outputs['loss']
+    t_loss = outputs['loss']   # 总loss(提议loss + caption loss)
     t_proposal_loss = outputs['proposal_loss']
     t_caption_loss = outputs['caption_loss']
     t_loss_list = [t_loss, t_proposal_loss, t_caption_loss]
@@ -327,10 +327,10 @@ def train(options):
 
 
     # gradient clipping option
-    if options['clip_gradient_norm'] < 0:
+    if options['clip_gradient_norm'] < 0:  #100
         train_op = optimizer.minimize(t_loss + options['reg'] * t_reg_loss, var_list=trainable_vars)
     else:
-        gvs = optimizer.compute_gradients(t_loss + options['reg'] * t_reg_loss, var_list=trainable_vars)
+        gvs = optimizer.compute_gradients(t_loss + options['reg'] * t_reg_loss, var_list=trainable_vars)  # options['reg'] = 10-6
         clip_grad_var = [(tf.clip_by_norm(grad, options['clip_gradient_norm']), var) for grad, var in gvs]
         train_op = optimizer.apply_gradients(clip_grad_var)
 
