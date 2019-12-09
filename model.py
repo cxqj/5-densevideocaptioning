@@ -326,6 +326,7 @@ class CaptionModel(object):
         # this line of code is just a message to inform that batch size should be set to 1 only
         batch_size = 1
 
+        # 以字典的形式保存输入和输出的shape
         inputs = {}
         outputs = {}
 
@@ -335,34 +336,35 @@ class CaptionModel(object):
         ## video feature sequence
         #---------------------------------------定义输入的占位符------------------------------------#
         # forward video feature sequence
-        video_feat_fw = tf.placeholder(tf.float32, [None, None, self.options['video_feat_dim']], name='video_feat_fw')
+        video_feat_fw = tf.placeholder(tf.float32, [None, None, self.options['video_feat_dim']], name='video_feat_fw')  # (B,T,C)
         inputs['video_feat_fw'] = video_feat_fw
 
         # backward video feature sequence
-        video_feat_bw = tf.placeholder(tf.float32, [None, None, self.options['video_feat_dim']], name='video_feat_bw')
+        video_feat_bw = tf.placeholder(tf.float32, [None, None, self.options['video_feat_dim']], name='video_feat_bw')  # (B,T,C)
         inputs['video_feat_bw'] = video_feat_bw
 
         ## proposal data, densely annotated, in forward direction
-        proposal_fw = tf.placeholder(tf.int32, [None, None, self.options['num_anchors']], name='proposal_fw')  # num_anchors = 120
-        inputs['proposal_fw'] = proposal_fw
+        proposal_fw = tf.placeholder(tf.int32, [None, None, self.options['num_anchors']], name='proposal_fw')  # (B,T,N),N=120
+        inputs['proposal_fw'] = proposal_fw   # 前向 GT
 
         ## proposal data, densely annotated, in backward direction
-        proposal_bw = tf.placeholder(tf.int32, [None, None, self.options['num_anchors']], name='proposal_bw')
-        inputs['proposal_bw'] = proposal_bw
+        proposal_bw = tf.placeholder(tf.int32, [None, None, self.options['num_anchors']], name='proposal_bw')  # (B,T,N),N=120
+        inputs['proposal_bw'] = proposal_bw  # 反向 GT
 
+        # 在进行Caption时需要选取前N个proposal进行Caption
         ## proposal to feed into captioning module, i choose high tiou proposals for training captioning module, forward pass
         proposal_caption_fw = tf.placeholder(tf.int32, [None, None], name='proposal_caption_fw')
-        inputs['proposal_caption_fw'] = proposal_caption_fw
+        inputs['proposal_caption_fw'] = proposal_caption_fw  # 前向 Caption GT
 
         ## proposal to feed into captioning module, i choose high tiou proposals for training captioning module, backward pass
         proposal_caption_bw = tf.placeholder(tf.int32, [None, None], name='proposal_caption_bw')
-        inputs['proposal_caption_bw'] = proposal_caption_bw
+        inputs['proposal_caption_bw'] = proposal_caption_bw  # 反向 Caption GT
 
         ## weighting for positive/negative labels (solve imbalance data problem)
         proposal_weight = tf.placeholder(tf.float32, [self.options['num_anchors'], 2], name='proposal_weight')
         inputs['proposal_weight'] = proposal_weight
        
-        
+        # 构建RNN单元
         rnn_cell_video_fw = tf.contrib.rnn.LSTMCell(
             num_units=self.options['rnn_size'],      # 512
             state_is_tuple=True, 
@@ -371,7 +373,7 @@ class CaptionModel(object):
         rnn_cell_video_bw = tf.contrib.rnn.LSTMCell(
             num_units=self.options['rnn_size'],
             state_is_tuple=True, 
-            initializer=tf.orthogonal_initializer()
+            initializer=tf.orthogonal_initializer() # 生成正交矩阵的初始化器.
         )
 
         if self.options['rnn_drop'] > 0:        # 0.3
@@ -380,10 +382,10 @@ class CaptionModel(object):
         rnn_drop = tf.placeholder(tf.float32)
         inputs['rnn_drop'] = rnn_drop
         
-        # 控制rnn的dropout比例
+        # 控制RNN的dropout比例
         rnn_cell_video_fw = tf.contrib.rnn.DropoutWrapper(
             rnn_cell_video_fw,
-            input_keep_prob=1.0 - rnn_drop,
+            input_keep_prob=1.0 - rnn_drop,   # keep_ratio = 0.7
             output_keep_prob=1.0 - rnn_drop 
         )
         rnn_cell_video_bw = tf.contrib.rnn.DropoutWrapper(
@@ -397,24 +399,25 @@ class CaptionModel(object):
 
             '''video feature sequence encoding: forward pass
             '''
-            #---------------------------------用rnn对输入特征进行编码------------------------------------#
+            #---------------------------------用RNN对输入特征进行编码------------------------------------#
             with tf.variable_scope('video_encoder_fw') as scope:
                 #sequence_length = tf.reduce_sum(video_feat_mask, axis=-1)
                 sequence_length = tf.expand_dims(tf.shape(video_feat_fw)[1], axis=0)
                 initial_state = rnn_cell_video_fw.zero_state(batch_size=batch_size, dtype=tf.float32)
                 
                 #(1,?,512)
+                # tf.nn.dynamic_rnn 函数是tensorflow封装的用来实现递归神经网络（RNN）的函数
                 rnn_outputs_fw, _ = tf.nn.dynamic_rnn(
-                    cell=rnn_cell_video_fw, 
-                    inputs=video_feat_fw, 
-                    sequence_length=sequence_length, 
+                    cell=rnn_cell_video_fw,   # cell：LSTM、GRU等的记忆单元。cell参数代表一个LSTM或GRU的记忆单元，也就是一个cell。
+                    inputs=video_feat_fw,  
+                    sequence_length=sequence_length,   # 输入语句序列的最长值
                     initial_state=initial_state,
                     dtype=tf.float32
                 )
             
             rnn_outputs_fw_reshape = tf.reshape(rnn_outputs_fw, [-1, self.options['rnn_size']], name='rnn_outputs_fw_reshape')
 
-            #---------------------------------------编码后的特征用于计算预测偏移值------------------------------------#
+            # 只需要用全连接层输出每个anchor的置信度得分就可以了，提议是提前就预设好的
             # predict proposal at each time step: use fully connected layer to output scores for every anchors
             with tf.variable_scope('predict_proposal_fw') as scope:
                 logit_output_fw = tf.contrib.layers.fully_connected(
@@ -440,6 +443,7 @@ class CaptionModel(object):
             
             rnn_outputs_bw_reshape = tf.reshape(rnn_outputs_bw, [-1, self.options['rnn_size']], name='rnn_outputs_bw_reshape')
 
+            # 只需要用全连接层输出每个anchor的置信度得分就可以了，提议是提前就预设好的
             # predict proposal at each time step: use fully connected layer to output scores for every anchors
             with tf.variable_scope('predict_proposal_bw') as scope:
                 logit_output_bw = tf.contrib.layers.fully_connected(
@@ -464,7 +468,6 @@ class CaptionModel(object):
         weight1 = tf.tile(weight1, [tf.shape(logit_output_fw)[0], 1])
 
         # get weighted sigmoid xentropy loss
-        # proposal_fw_float中存放的是真实偏移值，logit_output_fw中存放的是预测值
         loss_term_fw = tf.nn.weighted_cross_entropy_with_logits(targets=proposal_fw_float, logits=logit_output_fw, pos_weight=weight0)
         loss_term_bw = tf.nn.weighted_cross_entropy_with_logits(targets=proposal_bw_float, logits=logit_output_bw, pos_weight=weight0)
 
@@ -477,9 +480,9 @@ class CaptionModel(object):
         proposal_loss = (proposal_fw_loss + proposal_bw_loss) / 2.
 
         # summary data, for visualization using Tensorboard
-        tf.summary.scalar('proposal_fw_loss', proposal_fw_loss)
-        tf.summary.scalar('proposal_bw_loss', proposal_bw_loss)
-        tf.summary.scalar('proposal_loss', proposal_loss)
+        tf.summary.scalar('proposal_fw_loss', proposal_fw_loss)    # 正向提议Loss
+        tf.summary.scalar('proposal_bw_loss', proposal_bw_loss)    # 反向提议Loss
+        tf.summary.scalar('proposal_loss', proposal_loss)          # 总提议Loss
 
         # outputs from proposal module
         outputs['proposal_fw_loss'] = proposal_fw_loss
@@ -490,13 +493,14 @@ class CaptionModel(object):
         #*************** Define Captioning Module *****************#
 
         ## caption data: densely annotate sentences for each time step of a video, use mask data to mask out time steps when no caption should be output
-        caption = tf.placeholder(tf.int32, [None, None, self.options['caption_seq_len']], name='caption')    # caption_sep_len = 30
-        caption_mask = tf.placeholder(tf.int32, [None, None, self.options['caption_seq_len']], name='caption_mask')
+         # caption_sep_len = 30
+        caption = tf.placeholder(tf.int32, [None, None, self.options['caption_seq_len']], name='caption')  # (B,P,30) ,P为动作片段数量  
+        caption_mask = tf.placeholder(tf.int32, [None, None, self.options['caption_seq_len']], name='caption_mask')  # (B,P,30)
         inputs['caption'] = caption
         inputs['caption_mask'] = caption_mask
 
-        proposal_caption_fw_reshape = tf.reshape(proposal_caption_fw, [-1], name='proposal_caption_fw_reshape')
-        proposal_caption_bw_reshape = tf.reshape(proposal_caption_bw, [-1], name='proposal_caption_bw_reshape')
+        proposal_caption_fw_reshape = tf.reshape(proposal_caption_fw, [-1], name='proposal_caption_fw_reshape')  # (P,30)  
+        proposal_caption_bw_reshape = tf.reshape(proposal_caption_bw, [-1], name='proposal_caption_bw_reshape')  # (P,30)  
 
         # use correct or 'nearly correct' proposal output as input to the captioning module
         boolean_mask = tf.greater(proposal_caption_fw_reshape, 0, name='boolean_mask')
