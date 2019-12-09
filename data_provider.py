@@ -55,14 +55,15 @@ class DataProvision:
         
 
         # load label weight data
+        # 暂时不知道这些label权重干嘛的
         print('Loading label weight data ...')
-        
-        # 120个权重 [0.99,0.003]暂时不知道这两个玩意干啥的
         self._proposal_weight = json.load(open(os.path.join(self._options['caption_data_root'], 'anchors', 'weights.json')))
         if self._options['proposal_tiou_threshold'] != 0.5:
             raise ValueError('Might need to recalculate class weights to handle imbalance data')
 
         # when using tesorflow built-in function tf.nn.weighted_cross_entropy_with_logits()
+        # proposal_weight用于计算提议的带权交叉熵损失：
+        #     其中第一维度为正样本权重，第二维度为负样本权重，正样本的权重远远大于负样本(约为10：1) 
         for i in range(len(self._proposal_weight)):
             self._proposal_weight[i][0] /= self._proposal_weight[i][1]
             self._proposal_weight[i][1] = 1.
