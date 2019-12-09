@@ -264,17 +264,17 @@ def train(options):
     data_provision = DataProvision(options)
 
     batch_size = options['batch_size']   # 1
-    max_epochs = options['max_epochs']   # 100 有点多啊
+    max_epochs = options['max_epochs']   # 100 
     init_epoch = options['init_epoch']   # 0
     lr_init = options['learning_rate']   # 0.001
-    status_file = options['status_file']   # checkpoints/1/status.json
+    status_file = options['status_file']   # checkpoints/1/status.json,保存模型运行状态信息的文件
     lr = lr_init
     lr_decay_factor = options['lr_decay_factor']  # 0.1
     n_epoch_to_decay = options['n_epoch_to_decay'] # when to decay the lr [40,20]
     next_epoch_to_decay = n_epoch_to_decay.pop()  # 20
 
     n_iters_per_epoch = data_provision.get_size('train') // batch_size    # 10009
-    eval_in_iters = n_iters_per_epoch // options['n_eval_per_epoch']    # 多少次迭代时进行eval，其实就是一轮的迭代次数  
+    eval_in_iters = n_iters_per_epoch // options['n_eval_per_epoch']    # 多少次迭代时进行评估，其实就是一轮的迭代次数  
 
     #############################################
     # build model #
