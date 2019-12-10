@@ -110,7 +110,7 @@ class DataProvision:
             caption_length.append(cap_len)
 
         caption_num = len(batch_paragraph[0])
-        input_idx = np.zeros((len(batch_paragraph), caption_num, self._options['caption_seq_len']), dtype='int32')
+        input_idx = np.zeros((len(batch_paragraph), caption_num, self._options['caption_seq_len']), dtype='int32')   # (1,T,30)
         input_mask = np.zeros_like(input_idx)
         
         for i, captions in enumerate(batch_paragraph):
@@ -154,40 +154,45 @@ class DataProvision:
                 print('vid: %s'%vid)
                 print('feature_len: %d'%feature_len)
 
+            # 将前向特征进行镜像就得到了反向输入的特征
             feature_bw = np.flip(feature_fw, axis=0)
 
             batch_feature_fw.append(feature_fw)
             batch_feature_bw.append(feature_bw)
 
-            
+            # 视频对应的ground truth
             localization = self._localization[split][vid]
-            timestamps = localization['timestamps']
-            duration = localization['duration']
+            
+            timestamps = localization['timestamps']  # [[0.28,55,15],[13.79,54.32]]
+            duration = localization['duration']   # 55.15 
 
             # start and end time of the video stream
             start_time = 0.
             end_time = duration
 
-            
+            # 动作是通过对每个时间点预设120个不同尺度的anchor实现的
             n_anchors = len(self._anchors)
             # ground truth proposal
-            gt_proposal_fw = np.zeros(shape=(feature_len, n_anchors), dtype='int32')
-            gt_proposal_bw = np.zeros(shape=(feature_len, n_anchors), dtype='int32')
+            gt_proposal_fw = np.zeros(shape=(feature_len, n_anchors), dtype='int32')  # (T,120)
+            gt_proposal_bw = np.zeros(shape=(feature_len, n_anchors), dtype='int32')  # (T,120)
             # ground truth proposal for feeding into captioning module
-            gt_proposal_caption_fw = np.zeros(shape=(feature_len, ), dtype='int32')
+            gt_proposal_caption_fw = np.zeros(shape=(feature_len, ), dtype='int32')  # (T,)
             # corresponding backward index
-            gt_proposal_caption_bw = np.zeros(shape=(feature_len, ), dtype='int32')
+            gt_proposal_caption_bw = np.zeros(shape=(feature_len, ), dtype='int32')  # (T,)
             # ground truth encoded caption in each time step
             gt_caption = [[0] for i in range(feature_len)]
 
             paragraph = self._captions[vid]
             
+            
+            # caption_tiou_threshold = 0.8  proposal_tiou_threshold = 0.5
+            # 用于做caption的提议质量应该很高
             assert self._options['caption_tiou_threshold'] >= self._options['proposal_tiou_threshold']
             
             # calculate ground truth labels
             for stamp_id, stamp in enumerate(timestamps):
-                t1 = stamp[0]
-                t2 = stamp[1]
+                t1 = stamp[0]   # 0.28
+                t2 = stamp[1]   # 55.15
                 if t1 > t2:
                     temp = t1
                     t1 = t2
@@ -203,17 +208,18 @@ class DataProvision:
                 if end > end_time or start > end_time:
                     continue
                 
+                # 计算该提议相对于特征图上的位置
                 end_feat_id = max(int(round(end*feature_len/duration)-1), 0)
                 start_feat_id = max(int(round(start*feature_len/duration) - 1), 0)
 
                 mid_feature_id = int(round(((1.-self._options['proposal_tiou_threshold'])*end + self._options['proposal_tiou_threshold']*start) * feature_len / duration)) - 1
                 mid_feature_id = max(0, mid_feature_id)
 
-                
+                # 以特征序列长度为中心点开始生成一系列anchor
                 for i in range(mid_feature_id, feature_len):
                     overlap = False
                     for anchor_id, anchor in enumerate(self._anchors):
-                        end_pred = (float(i+1)/feature_len) * duration
+                        end_pred = (float(i+1)/feature_len) * duration  # 结束时间点不变，开始时间点依次减小，每次迭代完成后再增加结束时间点
                         start_pred = end_pred - anchor
 
                         intersection = max(0, min(end, end_pred) - max(start, start_pred))
@@ -224,40 +230,46 @@ class DataProvision:
                         if iou > self._options['proposal_tiou_threshold']:
                             overlap = True
                             # the corresonding label of backward lstm
-                            i_bw = feature_len - 1 - (start_feat_id+end_feat_id-i)
+                            i_bw = feature_len - 1 - (start_feat_id+end_feat_id-i)    # 反向时满足条件的提议对应的feat位置索引
                             i_bw = max(min(i_bw, feature_len-1), 0)
 
                             
                             gt_proposal_fw[i, anchor_id] = 1
-                            gt_proposal_bw[i_bw, anchor_id] = 1
+                            gt_proposal_bw[i_bw, anchor_id] = 1    # anchor_id : 第几个anchor满足条件
                                 
                         
                             if iou > self._options['caption_tiou_threshold']:
-                                gt_proposal_caption_fw[i] = 1
+                                gt_proposal_caption_fw[i] = 1      # 将对应时间位置置为1
                                 gt_proposal_caption_bw[i] = i_bw
                                 gt_caption[i] = paragraph[stamp_id]
 
                         elif overlap:
                             break
                                 
-            
-            batch_proposal_fw.append(gt_proposal_fw)
-            batch_proposal_bw.append(gt_proposal_bw)
-            batch_proposal_caption_fw.append(gt_proposal_caption_fw)
-            batch_proposal_caption_bw.append(gt_proposal_caption_bw)
+            # 相当于记录了那个时间位置的那种anchor尺度满足条件
+            batch_proposal_fw.append(gt_proposal_fw)  # (T,120)   # 记录了哪个时间点哪种尺度的anchor满足条件
+            batch_proposal_bw.append(gt_proposal_bw)  # (T,120)
+            batch_proposal_caption_fw.append(gt_proposal_caption_fw)  # (T,)  记录了哪个时间点应该送入caption model
+            batch_proposal_caption_bw.append(gt_proposal_caption_bw)  # (T,)
             batch_paragraph.append(gt_caption)
             
             batch_caption, batch_caption_mask = self.process_batch_paragraph(batch_paragraph)
 
-            batch_feature_fw = np.asarray(batch_feature_fw, dtype='float32')
-            batch_feature_bw = np.asarray(batch_feature_bw, dtype='float32')
-            batch_caption = np.asarray(batch_caption, dtype='int32')
-            batch_caption_mask = np.asarray(batch_caption_mask, dtype='int32')
+            # 1. 视频特征
+            batch_feature_fw = np.asarray(batch_feature_fw, dtype='float32')  # (1,T,500)
+            batch_feature_bw = np.asarray(batch_feature_bw, dtype='float32')  # (1,T,500)
+            
+            # 2. sentence
+            batch_caption = np.asarray(batch_caption, dtype='int32')  # (1,T,30)
+            batch_caption_mask = np.asarray(batch_caption_mask, dtype='int32') # (1,T,30)
 
-            batch_proposal_fw = np.asarray(batch_proposal_fw, dtype='int32')
-            batch_proposal_bw = np.asarray(batch_proposal_bw, dtype='int32')
-            batch_proposal_caption_fw = np.asarray(batch_proposal_caption_fw, dtype='int32')
-            batch_proposal_caption_bw = np.asarray(batch_proposal_caption_bw, dtype='int32')
+            # 3.采用SST算法生成的提议
+            batch_proposal_fw = np.asarray(batch_proposal_fw, dtype='int32')  # (1,T,120)
+            batch_proposal_bw = np.asarray(batch_proposal_bw, dtype='int32')  # (1,T,120)
+            
+            # 4. 用于指示哪个时间步的提议符合Caption的条件
+            batch_proposal_caption_fw = np.asarray(batch_proposal_caption_fw, dtype='int32')  # (1,T)
+            batch_proposal_caption_bw = np.asarray(batch_proposal_caption_bw, dtype='int32')  # (1,T)
             
 
             # serve as a tuple
