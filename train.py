@@ -31,7 +31,7 @@ def evaluation(options, data_provision, sess, inputs, t_loss):
     val_loss_list = []
     val_proposal_loss_list =[]
     val_caption_loss_list = []
-    val_count = min(data_provision.get_size('val'), options['loss_eval_num'])
+    val_count = min(data_provision.get_size('val'), options['loss_eval_num'])   #options['loss_eval_num']  拿1000个提议来评估loss
     batch_size = options['batch_size']
     
     count = 0
@@ -289,11 +289,15 @@ def train(options):
     t_reg_loss = outputs['reg_loss']
     t_n_proposals = outputs['n_proposals']
 
-
+    
     if options['evaluate_metric']:
         print('Build model for evaluating metric ...')
-        proposal_inputs, proposal_outputs = model.build_proposal_inference(reuse=True)
-        caption_inputs, caption_outputs = model.build_caption_greedy_inference(reuse=True)
+        # 生成提议用于预测
+        proposal_inputs, proposal_outputs = model.build_proposal_inference(reuse=True)  # (?,?,500)/(?,?,500)
+        # 生成caption用于预测
+        # caption_inputs : proposal_feat : (?,110,500) events_hidden_state : (?,1024)
+        # caption_outputs : (?,30)/(?,30)
+        caption_inputs, caption_outputs = model.build_caption_greedy_inference(reuse=True) 
         t_proposal_score_fw = proposal_outputs['proposal_score_fw']
         t_proposal_score_bw = proposal_outputs['proposal_score_bw']
         t_rnn_outputs_fw = proposal_outputs['rnn_outputs_fw']
@@ -304,7 +308,7 @@ def train(options):
     t_summary = tf.summary.merge_all()
     t_lr = tf.placeholder(tf.float32)
 
-    # 论文中使用的时adam优化器
+   
     if options['solver'] == 'adam':
         optimizer = tf.train.AdamOptimizer(learning_rate=t_lr)
     elif options['solver'] == 'sgd':
@@ -317,6 +321,9 @@ def train(options):
         optimizer = tf.train.GradientDescentOptimizer(learning_rate=t_lr)
     
     # get trainable variable list
+    
+    # tensorflow用集合colletion组织不同类别的对象。tf.GraphKeys中包含了所有默认集合的名称。
+    # Variable被收集在名为tf.GraphKeys.VARIABLES的colletion中,Tensorflow使用Variable类表达、更新、存储模型参数。
     trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
     if not options['train_proposal']:
         trainable_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='caption_module')
@@ -327,14 +334,29 @@ def train(options):
 
 
     # gradient clipping option
+    # 该函数的作用是将compute_gradients()返回的值作为输入参数对variable进行更新。
+    """
+    那为什么minimize()会分开两个步骤呢？原因是因为在某些情况下我们需要对梯度做一定的修正，例如为了防止梯度消失(gradient vanishing)
+    或者梯度爆炸(gradient explosion)，我们需要事先干预一下以免程序出现Nan的尴尬情况；有的时候也许我们需要给计算得到的梯度乘以一个权
+    重或者其他乱七八糟的原因，所以才分开了两个步骤。
+    """
     if options['clip_gradient_norm'] < 0:  #100
         train_op = optimizer.minimize(t_loss + options['reg'] * t_reg_loss, var_list=trainable_vars)
     else:
+        # 简单说该函数就是用于计算loss对于指定val_list的导数的，最终返回的是元组列表，即[(gradient, variable),...]。
         gvs = optimizer.compute_gradients(t_loss + options['reg'] * t_reg_loss, var_list=trainable_vars)  # options['reg'] = 10-6
+        
+        """
+          t: 要裁剪的梯度张量
+          clip_norm: 裁剪阈值，一个合适的正数
+          axes: 需要进行规约的维度，为None时，则对张量t的所有元素做规约
+          name:操作名称
+       """
         clip_grad_var = [(tf.clip_by_norm(grad, options['clip_gradient_norm']), var) for grad, var in gvs]
-        train_op = optimizer.apply_gradients(clip_grad_var)
+        train_op = optimizer.apply_gradients(clip_grad_var)  # 该函数的作用是将compute_gradients()后进行梯度裁剪后的返回的值作为输入参数对variable进行更新。
 
     # save summary data
+    # 指定一个文件用来保存图。
     train_summary_writer = tf.summary.FileWriter(os.path.dirname(options['status_file']), sess.graph)
 
     # initialize all variables
