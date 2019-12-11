@@ -62,13 +62,13 @@ def evaluation(options, data_provision, sess, inputs, t_loss):
 """
 Generate batch data and corresponding mask data for the input
 """
-def process_batch_data(batch_data, max_length):
-    dim = batch_data[0].shape[1]
+def process_batch_data(batch_data, max_length):  # max_len = 110
+    dim = batch_data[0].shape[1]   # 500
 
-    out_batch_data = np.zeros(shape=(len(batch_data), max_length, dim), dtype='float32')
-    out_batch_data_mask = np.zeros(shape=(len(batch_data), max_length), dtype='int32')
+    out_batch_data = np.zeros(shape=(len(batch_data), max_length, dim), dtype='float32')    # (100,110,500)
+    out_batch_data_mask = np.zeros(shape=(len(batch_data), max_length), dtype='int32')      # (100,110)
 
-    for i, data in enumerate(batch_data):
+    for i, data in enumerate(batch_data):   # (T,500)
         effective_len = min(max_length, data.shape[0])
         out_batch_data[i, :effective_len, :] = data[:effective_len]
         out_batch_data_mask[i, :effective_len] = 1
@@ -100,13 +100,13 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
 
     val_ids = data_provision.get_ids('val')[:eval_num]
     anchors = data_provision.get_anchors()
-    localizaitons = data_provision.get_localization()
+    localizaitons = data_provision.get_localization()   # 真实的标注文件
 
     for batch_data in data_provision.iterate_batch('val', batch_size):
         print('\nProcessed %d-th batch \n'%count)
         vid = val_ids[count]
         print('video id: %s'%vid)
-
+        # proposal_score_fw ： (T,120)   rnn_outputs : (T,512)
         proposal_score_fw, proposal_score_bw, rnn_outputs_fw, rnn_outputs_bw = sess.run([proposal_outputs['proposal_score_fw'], proposal_outputs['proposal_score_bw'], proposal_outputs['rnn_outputs_fw'], proposal_outputs['rnn_outputs_bw']], feed_dict={proposal_inputs['video_feat_fw']:batch_data['video_feat_fw'], proposal_inputs['video_feat_bw']:batch_data['video_feat_bw']})
         
         feat_len = batch_data['video_feat_fw'][0].shape[0]
@@ -114,7 +114,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         
         '''calculate final score by summarizing forward score and backward score
         '''
-        proposal_score = np.zeros((feat_len, options['num_anchors']))
+        proposal_score = np.zeros((feat_len, options['num_anchors']))  # 记录最终的提议得分
         proposal_infos = []
 
         
@@ -132,13 +132,13 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
 
                 # backward
                 end_bw = duration - start
-                i_bw = min(int(round((end_bw/duration)*feat_len)-1), feat_len-1)
+                i_bw = min(int(round((end_bw/duration)*feat_len)-1), feat_len-1)  # 反向提议的索引
                 i_bw = max(i_bw, 0)
                 backward_score = proposal_score_bw[i_bw,j]
 
                 proposal_score[i,j] = forward_score*backward_score
 
-                hidden_feat = np.concatenate([rnn_outputs_fw[i], rnn_outputs_bw[i_bw]], axis=-1)
+                hidden_feat = np.concatenate([rnn_outputs_fw[i], rnn_outputs_bw[i_bw]], axis=-1)  # (1024,)
                     
                 
                 proposal_feats = batch_data['video_feat_fw'][0][feat_len-1-i_bw:i+1]
@@ -147,15 +147,15 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
                 pre_start = start
         
         # add the largest proposal
-        hidden_feat = np.concatenate([rnn_outputs_fw[feat_len-1], rnn_outputs_bw[feat_len-1]], axis=-1)
+        hidden_feat = np.concatenate([rnn_outputs_fw[feat_len-1], rnn_outputs_bw[feat_len-1]], axis=-1)  # (1024,)
             
-        
+        # 直接把整个视频当个提议
         proposal_feats = batch_data['video_feat_fw'][0]
         proposal_infos.append({'timestamp':[0., duration], 'score': 1., 'event_hidden_feats': hidden_feat, 'proposal_feats': proposal_feats})
         
-
+        # proposals_infos:(scores,timestamps,proposals_feats,events_hidden_features)
         proposal_infos = sorted(proposal_infos, key=getKey, reverse=True)
-        proposal_infos = proposal_infos[:options['max_proposal_num']]
+        proposal_infos = proposal_infos[:options['max_proposal_num']]   # max_proposal_num : 100
 
         print('Number of proposals: %d'%len(proposal_infos))
 
@@ -165,12 +165,13 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
 
         
         event_hidden_feats = np.array(event_hidden_feats, dtype='float32')
-        proposal_feats, _ = process_batch_data(proposal_feats, options['max_proposal_len'])
+        proposal_feats, _ = process_batch_data(proposal_feats, options['max_proposal_len']) # max_proposal_len = 110  proposal_feats : (100,110,500)
 
         # run session to get word ids
+        # word_ids : (100,30)
         word_ids = sess.run(caption_outputs['word_ids'], feed_dict={caption_inputs['event_hidden_feats']: event_hidden_feats, caption_inputs['proposal_feats']: proposal_feats})
         
-        
+       
         sentences = [[ix2word[i] for i in ids] for ids in word_ids]
         sentences = [sentence[1:] for sentence in sentences]
         
@@ -221,7 +222,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
     evaluator.evaluate()
 
     # Output the results
-    for i, tiou in enumerate(options['tiou_measure']):
+    for i, tiou in enumerate(options['tiou_measure']):  # [0.3,0.5,0.7,0.9]
         print('-' * 80)
         print('tIoU: %.2f'%tiou)
         print('-' * 80)
@@ -281,6 +282,26 @@ def train(options):
 
     print('Build model for training ...')
     model = CaptionModel(options)
+    """
+     inputs :
+          video_feat_fw: (B,T,C)
+          video_feat_bw: (B,T,C)
+          proposal_fw : (B,T,120)
+          Proposal_bw : (B,T,120)
+          proposal_caption_fw : (B,T)
+          proposal_caption_bw : (B,T)
+          proposal_weights : (120,2)
+          rnn_drop : 0.3
+          caption: (B,T,30)
+          caption_mask : (B,T,30)
+    
+    
+    
+    
+    """
+    
+    
+    
     inputs, outputs = model.build_train()
     t_loss = outputs['loss']   # 总loss(提议loss + caption loss)
     t_proposal_loss = outputs['proposal_loss']
