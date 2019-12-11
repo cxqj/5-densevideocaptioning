@@ -25,7 +25,7 @@ class DataProvision:
 
         self._ids = {}  # video ids
         captions = {}
-        self._sizes = {}
+        self._sizes = {}  
         print('Loading paragraph data ...')
         
          # ids.txt保存的是对应split的视频id
@@ -37,7 +37,7 @@ class DataProvision:
 
             self._sizes[split] = len(self._ids[split])
             
-            # encoded_sentences.json中保存的是将单词编码为对应id后的结果
+            # encoded_sentences.json中保存的是数字化后的语句
             tmp_captions = json.load(open(os.path.join(self._options['caption_data_root'], split, 'encoded_sentences.json'), 'r'))
             captions[split] = {tmp_ids[i]:tmp_captions[i] for i in range(len(tmp_ids))}
 
@@ -65,7 +65,7 @@ class DataProvision:
         # proposal_weight用于计算提议的带权交叉熵损失：
         #     其中第一维度为正样本权重，第二维度为负样本权重，正样本的权重远远大于负样本(约为10：1) 
         for i in range(len(self._proposal_weight)):
-            self._proposal_weight[i][0] /= self._proposal_weight[i][1]
+            self._proposal_weight[i][0] /= self._proposal_weight[i][1]   # 正样本权重
             self._proposal_weight[i][1] = 1.
 
         # get anchors
@@ -73,7 +73,7 @@ class DataProvision:
         anchor_path = os.path.join(self._options['caption_data_root'], 'anchors', 'anchors.txt')
         anchors = open(anchor_path).readlines()
         self._anchors = [float(line.strip()) for line in anchors]
-        # -----------------------------------------加载标注文件------------------------------------------#
+       
         print('Loading localization data ...')
         self._localization = {}
         for split in self._splits:
