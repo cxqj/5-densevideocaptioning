@@ -352,7 +352,7 @@ def train(options):
         t_word_ids = caption_outputs['word_ids']
     #############################################
     
-    t_summary = tf.summary.merge_all()
+    t_summary = tf.summary.merge_all()  # 合并默认图中收集的所有摘要。 
     t_lr = tf.placeholder(tf.float32)
 
    
@@ -399,6 +399,7 @@ def train(options):
           axes: 需要进行规约的维度，为None时，则对张量t的所有元素做规约
           name:操作名称
        """
+        # clip_gradient_norm为梯度裁剪的阈值
         clip_grad_var = [(tf.clip_by_norm(grad, options['clip_gradient_norm']), var) for grad, var in gvs]
         train_op = optimizer.apply_gradients(clip_grad_var)  # 该函数的作用是将compute_gradients()后进行梯度裁剪后的返回的值作为输入参数对variable进行更新。
 
