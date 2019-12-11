@@ -10,6 +10,7 @@ class CaptionModel(object):
 
     def __init__(self, options):
         self.options = options
+        # 用于初始化词嵌入矩阵
         self.initializer = tf.random_uniform_initializer(
             minval = - self.options['init_scale'],  # 0.08
             maxval = self.options['init_scale'])
@@ -67,6 +68,7 @@ class CaptionModel(object):
         # backward
         video_feat_bw = tf.placeholder(tf.float32, [None, None, self.options['video_feat_dim']], name='video_feat_bw')
         inputs['video_feat_bw'] = video_feat_bw
+        
         
         rnn_cell_video_fw = tf.contrib.rnn.LSTMCell(
             num_units=self.options['rnn_size'],
@@ -353,15 +355,15 @@ class CaptionModel(object):
 
         # 在进行Caption时需要选取前N个proposal进行Caption,保存用于做caption的提议
         ## proposal to feed into captioning module, i choose high tiou proposals for training captioning module, forward pass
-        proposal_caption_fw = tf.placeholder(tf.int32, [None, None], name='proposal_caption_fw')  # (B,N)
+        proposal_caption_fw = tf.placeholder(tf.int32, [None, None], name='proposal_caption_fw')  # (B,T)
         inputs['proposal_caption_fw'] = proposal_caption_fw  # 前向 Caption GT
 
         ## proposal to feed into captioning module, i choose high tiou proposals for training captioning module, backward pass
-        proposal_caption_bw = tf.placeholder(tf.int32, [None, None], name='proposal_caption_bw')  # (B,N)
+        proposal_caption_bw = tf.placeholder(tf.int32, [None, None], name='proposal_caption_bw')  # (B,T)
         inputs['proposal_caption_bw'] = proposal_caption_bw  # 反向 Caption GT
 
         ## weighting for positive/negative labels (solve imbalance data problem)
-        proposal_weight = tf.placeholder(tf.float32, [self.options['num_anchors'], 2], name='proposal_weight')
+        proposal_weight = tf.placeholder(tf.float32, [self.options['num_anchors'], 2], name='proposal_weight')  # (120,2)
         inputs['proposal_weight'] = proposal_weight
        
         # 构建RNN单元
@@ -399,23 +401,25 @@ class CaptionModel(object):
 
             '''video feature sequence encoding: forward pass
             '''
-            #---------------------------------用RNN对输入特征进行编码------------------------------------#
+            #---------------------------------用RNN对输入特征进行编码，用全连接层预测每个提议的得分------------------------------------#
             with tf.variable_scope('video_encoder_fw') as scope:
                 #sequence_length = tf.reduce_sum(video_feat_mask, axis=-1)
-                sequence_length = tf.expand_dims(tf.shape(video_feat_fw)[1], axis=0)
+                sequence_length = tf.expand_dims(tf.shape(video_feat_fw)[1], axis=0)   # (1,)
                 initial_state = rnn_cell_video_fw.zero_state(batch_size=batch_size, dtype=tf.float32)
                 
                 #(1,?,512)
                 # tf.nn.dynamic_rnn 函数是tensorflow封装的用来实现递归神经网络（RNN）的函数
+                
+                # 利用RNN对输入视频特征进行编码
                 rnn_outputs_fw, _ = tf.nn.dynamic_rnn(
                     cell=rnn_cell_video_fw,   # cell：LSTM、GRU等的记忆单元。cell参数代表一个LSTM或GRU的记忆单元，也就是一个cell。
                     inputs=video_feat_fw,  
-                    sequence_length=sequence_length,   # 输入语句序列的最长值
+                    sequence_length=sequence_length,   # 输入序列的最长值
                     initial_state=initial_state,
                     dtype=tf.float32
                 )
-            
-            rnn_outputs_fw_reshape = tf.reshape(rnn_outputs_fw, [-1, self.options['rnn_size']], name='rnn_outputs_fw_reshape')
+            # (1,T,512)-->(T,512)
+            rnn_outputs_fw_reshape = tf.reshape(rnn_outputs_fw, [-1, self.options['rnn_size']], name='rnn_outputs_fw_reshape')  # (T,512)
 
             # 只需要用全连接层输出每个anchor的置信度得分就可以了，提议是提前就预设好的
             # predict proposal at each time step: use fully connected layer to output scores for every anchors
@@ -424,7 +428,7 @@ class CaptionModel(object):
                     inputs = rnn_outputs_fw_reshape, 
                     num_outputs = self.options['num_anchors'],
                     activation_fn = None
-                )
+                )   # (T,512)-->(T,120) ,预测每个anchor属于proposal的得分
 
             '''video feature sequence encoding: backward pass
             '''
@@ -441,6 +445,7 @@ class CaptionModel(object):
                     dtype=tf.float32
                 )
             
+             # (1,T,512)-->(T,512)
             rnn_outputs_bw_reshape = tf.reshape(rnn_outputs_bw, [-1, self.options['rnn_size']], name='rnn_outputs_bw_reshape')
 
             # 只需要用全连接层输出每个anchor的置信度得分就可以了，提议是提前就预设好的
@@ -452,37 +457,41 @@ class CaptionModel(object):
                     activation_fn = None
                 )
 
+           #---------------------------------------------------------------------------------------------#
+        
         # calculate multi-label loss: use weighted binary cross entropy objective
         proposal_fw_reshape = tf.reshape(proposal_fw, [-1, self.options['num_anchors']], name='proposal_fw_reshape')
-        proposal_fw_float = tf.to_float(proposal_fw_reshape)
+        proposal_fw_float = tf.to_float(proposal_fw_reshape)  # (T,120)
         proposal_bw_reshape = tf.reshape(proposal_bw, [-1, self.options['num_anchors']], name='proposal_bw_reshape')
-        proposal_bw_float = tf.to_float(proposal_bw_reshape)
+        proposal_bw_float = tf.to_float(proposal_bw_reshape)  # (T,120)
 
         # weighting positive samples
         weight0 = tf.reshape(proposal_weight[:, 0], [-1, self.options['num_anchors']])
+        
         # weighting negative samples
         weight1 = tf.reshape(proposal_weight[:, 1], [-1, self.options['num_anchors']])
 
         # tile weight batch_size times
-        weight0 = tf.tile(weight0, [tf.shape(logit_output_fw)[0], 1])
-        weight1 = tf.tile(weight1, [tf.shape(logit_output_fw)[0], 1])
+        weight0 = tf.tile(weight0, [tf.shape(logit_output_fw)[0], 1])    # (T,120)
+        weight1 = tf.tile(weight1, [tf.shape(logit_output_fw)[0], 1])    # (T,120)
 
         # get weighted sigmoid xentropy loss
         loss_term_fw = tf.nn.weighted_cross_entropy_with_logits(targets=proposal_fw_float, logits=logit_output_fw, pos_weight=weight0)
         loss_term_bw = tf.nn.weighted_cross_entropy_with_logits(targets=proposal_bw_float, logits=logit_output_bw, pos_weight=weight0)
 
+        # 先对每个时序位置的120个anchor的Loss求和
         loss_term_fw_sum = tf.reduce_sum(loss_term_fw, axis=-1, name='loss_term_fw_sum')
         loss_term_bw_sum = tf.reduce_sum(loss_term_bw, axis=-1, name='loss_term_bw_sum')
 
-        
+        # 再对所有的时序位置求和除以所有的anchor数
         proposal_fw_loss = tf.reduce_sum(loss_term_fw_sum) / (float(self.options['num_anchors'])*tf.to_float(tf.shape(video_feat_fw)[1]))
         proposal_bw_loss = tf.reduce_sum(loss_term_bw_sum) / (float(self.options['num_anchors'])*tf.to_float(tf.shape(video_feat_bw)[1]))
         proposal_loss = (proposal_fw_loss + proposal_bw_loss) / 2.
 
         # summary data, for visualization using Tensorboard
-        tf.summary.scalar('proposal_fw_loss', proposal_fw_loss)    # 正向提议Loss
-        tf.summary.scalar('proposal_bw_loss', proposal_bw_loss)    # 反向提议Loss
-        tf.summary.scalar('proposal_loss', proposal_loss)          # 总提议Loss
+        tf.summary.scalar('proposal_fw_loss', proposal_fw_loss)   
+        tf.summary.scalar('proposal_bw_loss', proposal_bw_loss)   
+        tf.summary.scalar('proposal_loss', proposal_loss)         
 
         # outputs from proposal module
         outputs['proposal_fw_loss'] = proposal_fw_loss
@@ -495,16 +504,19 @@ class CaptionModel(object):
         ## caption data: densely annotate sentences for each time step of a video, use mask data to mask out time steps when no caption should be output
          # caption_sep_len = 30
         # 存放真实的caption
-        caption = tf.placeholder(tf.int32, [None, None, self.options['caption_seq_len']], name='caption')  # (B,N,30) ,N为动作片段数量  
-        caption_mask = tf.placeholder(tf.int32, [None, None, self.options['caption_seq_len']], name='caption_mask')  # (B,N,30)
+        caption = tf.placeholder(tf.int32, [None, None, self.options['caption_seq_len']], name='caption')  # (B,T,30)  
+        caption_mask = tf.placeholder(tf.int32, [None, None, self.options['caption_seq_len']], name='caption_mask')  # (B,T,30)
         inputs['caption'] = caption
         inputs['caption_mask'] = caption_mask
 
-        proposal_caption_fw_reshape = tf.reshape(proposal_caption_fw, [-1], name='proposal_caption_fw_reshape')  # (N)   
-        proposal_caption_bw_reshape = tf.reshape(proposal_caption_bw, [-1], name='proposal_caption_bw_reshape')  # (N)  
+        # proposal_caption_fw种记录了哪个时序位置有满足用于caption的提议
+        proposal_caption_fw_reshape = tf.reshape(proposal_caption_fw, [-1], name='proposal_caption_fw_reshape')  # (B,T) ---> (T)  
+        proposal_caption_bw_reshape = tf.reshape(proposal_caption_bw, [-1], name='proposal_caption_bw_reshape')  # (B,T) ---> (T)  
 
         # use correct or 'nearly correct' proposal output as input to the captioning module
-        boolean_mask = tf.greater(proposal_caption_fw_reshape, 0, name='boolean_mask')
+        
+        # boolean_mask中保存着满足条件的时序位置，前向和反向的boolean——mask是一样的，只是其对应的时序位置不同
+        boolean_mask = tf.greater(proposal_caption_fw_reshape, 0, name='boolean_mask')  # 选取满足条件的时序位置
 
         # guarantee that at least one pos has True value
         """
@@ -516,9 +528,14 @@ class CaptionModel(object):
         # select input video state
         feat_len = tf.shape(video_feat_fw)[1]   # T 
         
-        # 通过boolean_mask函数选取对应位置的值
-        forward_indices = tf.boolean_mask(tf.range(feat_len), boolean_mask)
-        event_feats_fw = tf.boolean_mask(rnn_outputs_fw_reshape, boolean_mask)
+        # 通过boolean_mask函数选取对应位置，由于正向时，时序位置和boolean_mask的位置是对应的
+        forward_indices = tf.boolean_mask(tf.range(feat_len), boolean_mask)  # tf.boolean_mask直接返回对应mask位置的值
+        
+        # rnn_outputs_fw_reshape : (T,512)
+        event_feats_fw = tf.boolean_mask(rnn_outputs_fw_reshape, boolean_mask)  
+        # proposal_caption_bw_reshape : (T)
+      
+        # 反向时，时序位置和boolean_mask中的位置不是对应的，因此需要用boolean_mask选取出proposal_caption_bw_reshape对应位置的值
         backward_indices = tf.boolean_mask(proposal_caption_bw_reshape, boolean_mask)
         """
         tf.gather:
@@ -526,22 +543,28 @@ class CaptionModel(object):
         tf.gather_nd:
             同上，但允许在多维上进行索引
         """
+        # rnn_outputs_bw_reshape : (T,512)
+        # 获取反向时对应位置的特征
+        # backword_indices : (T)--> (T,1)
+        # (T,512),(T,1)
         event_feats_bw = tf.gather_nd(rnn_outputs_bw_reshape, tf.expand_dims(backward_indices, axis=-1))
         
+        # 开始和结束时间列表
         start_ids = feat_len - 1 - backward_indices
         end_ids = forward_indices
         
-        # max_proposal_len = 110
-        event_c3d_seq, _ = self.get_c3d_seq(video_feat_fw[0], start_ids, end_ids, self.options['max_proposal_len'])  # 事件对应的特征 (P,110,500)
-        # 上下文特征
-        context_feats_fw = tf.gather_nd(rnn_outputs_fw_reshape, tf.expand_dims(start_ids, axis=-1))
+        # max_proposal_len = 110   提议对应的特征 (N,110,500)
+        event_c3d_seq, _ = self.get_c3d_seq(video_feat_fw[0], start_ids, end_ids, self.options['max_proposal_len']) 
+        
+        #不太明白上下文特征的选取？？？ 
+        context_feats_fw = tf.gather_nd(rnn_outputs_fw_reshape, tf.expand_dims(start_ids, axis=-1))  # (T,512),(T,1) 
         context_feats_bw = tf.gather_nd(rnn_outputs_bw_reshape, tf.expand_dims(feat_len-1-end_ids, axis=-1))
 
         # proposal feature sequences
         proposal_feats = event_c3d_seq
 
         # corresponding caption ground truth (batch size  = 1)
-        # 提议对应的真实caption  (B,N,30)---> (N,30)
+        # caption : (B,T,30)
         caption_proposed = tf.boolean_mask(caption[0], boolean_mask, name='caption_proposed')  # (N,30)
         caption_mask_proposed = tf.boolean_mask(caption_mask[0], boolean_mask, name='caption_mask_proposed')
 
@@ -727,13 +750,18 @@ class CaptionModel(object):
 
     # 这里面是经典的tensorflow中的循环的写法，可以借鉴一下
     """get c3d proposal representation (feature sequence), given start end feature ids
+       video_feat_sequence : (B,T,C)
+       start_ids : 开始时间列表
+       end_ids : 结束时间列表
+       max_clip_len : 110 (对于不到110的，padding到110)
     """
+   
     def get_c3d_seq(self, video_feat_sequence, start_ids, end_ids, max_clip_len):
-        
+        # 对于时长为T的视频，可能有s个满足条件的时间点
         ind = tf.constant(0)   
-        N = tf.shape(start_ids)[0]
-        event_c3d_sequence = tf.fill([0, max_clip_len, self.options['video_feat_dim']], 0.)    # (1,110,500)
-        event_c3d_mask = tf.fill([0, max_clip_len], 0.)
+        N = tf.shape(start_ids)[0]  # 满足条件的时间点个数
+        event_c3d_sequence = tf.fill([0, max_clip_len, self.options['video_feat_dim']], 0.)    # (0,110,500)
+        event_c3d_mask = tf.fill([0, max_clip_len], 0.)   # (0,110)
         event_c3d_mask = tf.to_int32(event_c3d_mask)
 
         def condition(ind, event_c3d_sequence, event_c3d_mask):
@@ -751,7 +779,7 @@ class CaptionModel(object):
             c3d_feats = tf.expand_dims(c3d_feats, axis=0)  # (1,110,500)
             event_c3d_sequence = tf.concat([event_c3d_sequence, c3d_feats], axis=0)
 
-            # 获取提议MASK
+            # ----------------------------------------获取提议对应的时长mask,没有用-----------------------------------------#
             this_mask = tf.cond(tf.less(clip_len, max_clip_len), lambda: tf.concat([tf.fill([clip_len], 1.), tf.fill([max_clip_len-clip_len], 0.)], axis=0), lambda: tf.fill([max_clip_len], 1.))
             this_mask = tf.expand_dims(this_mask, axis=0)  # (1,110)
             this_mask = tf.to_int32(this_mask)  # ()
@@ -763,4 +791,4 @@ class CaptionModel(object):
         _, event_c3d_sequence, event_c3d_mask = tf.while_loop(condition, body, loop_vars=[ind, event_c3d_sequence, event_c3d_mask], shape_invariants=[ind.get_shape(), tf.TensorShape([None, None, self.options['video_feat_dim']]), tf.TensorShape([None, None])])
 
 
-        return event_c3d_sequence, event_c3d_mask
+        return event_c3d_sequence, event_c3d_mask   # 只需要 event_c3d_sequence，event_c3d_mask没有用到
