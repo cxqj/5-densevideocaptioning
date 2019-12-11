@@ -294,9 +294,15 @@ def train(options):
           rnn_drop : 0.3
           caption: (B,T,30)
           caption_mask : (B,T,30)
-    
-    
-    
+          
+     outputs :
+          proposal_fw_loss
+          proposal_bw_loss
+          proposal_loss
+          caption_loss
+          loss
+          reg_loss
+          n_proposals : 满足caption条件的提议数
     
     """
     
@@ -313,11 +319,31 @@ def train(options):
     
     if options['evaluate_metric']:
         print('Build model for evaluating metric ...')
-        # 生成提议用于预测
+        """
+        proposal_inputs:
+               video_feat_fw : (B,T,C)
+               video_feat_bw : (B,T,C)
+                
+        propsoal_outputs:
+               outputs['proposal_score_fw'] = proposal_score_fw  (T,120)
+               outputs['proposal_score_bw'] = proposal_score_bw  (T,120)
+               outputs['rnn_outputs_fw'] = rnn_outputs_fw_reshape (T,512)
+               outputs['rnn_outputs_bw'] = rnn_outputs_bw_reshape (T,512)
+
+        """
         proposal_inputs, proposal_outputs = model.build_proposal_inference(reuse=True)  # (?,?,500)/(?,?,500)
         # 生成caption用于预测
-        # caption_inputs : proposal_feat : (?,110,500) events_hidden_state : (?,1024)
-        # caption_outputs : (?,30)/(?,30)
+        """
+        caption_inputs：
+                inputs['event_hidden_feats'] = event_hidden_feats   # (N,1024)
+                inputs['proposal_feats'] = proposal_feats  # (N,110,500)
+
+        caption_outputs:
+                outputs['word_ids'] = word_ids
+                outputs['word_confidences'] = word_confidences
+        
+        """
+       
         caption_inputs, caption_outputs = model.build_caption_greedy_inference(reuse=True) 
         t_proposal_score_fw = proposal_outputs['proposal_score_fw']
         t_proposal_score_bw = proposal_outputs['proposal_score_bw']
