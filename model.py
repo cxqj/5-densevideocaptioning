@@ -37,15 +37,15 @@ class CaptionModel(object):
         with tf.variable_scope('word_embed', reuse=reuse):
             embed_map = tf.get_variable(
                 name='map',
-                shape=(self.options['vocab_size'], self.options['word_embed_size']),
-                initializer=self.initializer
+                shape=(self.options['vocab_size'], self.options['word_embed_size']),   # 4414 X 512
+                initializer=self.initializer  # 初始化此嵌入矩阵
             )
             # tf.nn.embedding_lookup函数的用法主要是选取一个张量里面索引对应的元素。
             #tf.nn.embedding_lookup（params, ids）:params可以是张量也可以是数组等，id就是对应的索引，
-            caption_embed = tf.nn.embedding_lookup(embed_map, caption)
+            caption_embed = tf.nn.embedding_lookup(embed_map, caption)# 从词嵌入表中查询caption中单词对应的embedding信息
         return caption_embed
 
-    
+#-----------------------------------------------------------------------------------------------------------------------#    
     """
     Build graph for proposal generation (inference)
     """
@@ -63,11 +63,11 @@ class CaptionModel(object):
 
         # forward
         video_feat_fw = tf.placeholder(tf.float32, [None, None, self.options['video_feat_dim']], name='video_feat_fw')
-        inputs['video_feat_fw'] = video_feat_fw
+        inputs['video_feat_fw'] = video_feat_fw  # (B,T,C)
 
         # backward
         video_feat_bw = tf.placeholder(tf.float32, [None, None, self.options['video_feat_dim']], name='video_feat_bw')
-        inputs['video_feat_bw'] = video_feat_bw
+        inputs['video_feat_bw'] = video_feat_bw  # (B,T,C)
         
         
         rnn_cell_video_fw = tf.contrib.rnn.LSTMCell(
@@ -75,6 +75,8 @@ class CaptionModel(object):
             state_is_tuple=True, 
             initializer=tf.orthogonal_initializer()
         )
+        
+        
         rnn_cell_video_bw = tf.contrib.rnn.LSTMCell(
             num_units=self.options['rnn_size'],
             state_is_tuple=True, 
@@ -97,7 +99,7 @@ class CaptionModel(object):
                     dtype=tf.float32
                 )
                 
-                
+            # (T,512)   
             rnn_outputs_fw_reshape = tf.reshape(rnn_outputs_fw, [-1, self.options['rnn_size']], name='rnn_outputs_fw_reshape')
 
             # predict proposal at each time step: use fully connected layer to output scores for every anchors
@@ -106,7 +108,7 @@ class CaptionModel(object):
                     inputs = rnn_outputs_fw_reshape, 
                     num_outputs = self.options['num_anchors'],
                     activation_fn = None
-                )
+                )   # (T,120) 预测每一个anchor属于动作提议的概率
 
             '''video feature sequence encoding: backward pass
             '''
@@ -132,7 +134,7 @@ class CaptionModel(object):
                     inputs = rnn_outputs_bw_reshape,
                     num_outputs = self.options['num_anchors'],
                     activation_fn = None
-                )
+                )  # (T,120)
 
         # score
         proposal_score_fw = tf.sigmoid(logit_output_fw, name='proposal_score_fw')
@@ -157,15 +159,15 @@ class CaptionModel(object):
         outputs = {}
 
         # proposal feature sequences (the localized proposals/events can be of different length, I set a 'max_proposal_len' to make it easy for GPU processing)
-        proposal_feats = tf.placeholder(tf.float32, [None, self.options['max_proposal_len'], self.options['video_feat_dim']])
+        proposal_feats = tf.placeholder(tf.float32, [None, self.options['max_proposal_len'], self.options['video_feat_dim']])  # (N,110,500)
         # combination of forward and backward hidden state, which encode event context information
-        event_hidden_feats = tf.placeholder(tf.float32, [None, 2*self.options['rnn_size']])
+        event_hidden_feats = tf.placeholder(tf.float32, [None, 2*self.options['rnn_size']])  # (N,1024)
 
-        inputs['event_hidden_feats'] = event_hidden_feats
-        inputs['proposal_feats'] = proposal_feats
+        inputs['event_hidden_feats'] = event_hidden_feats   # (N,1024)
+        inputs['proposal_feats'] = proposal_feats  # (N,110,500)
 
         # batch size for inference, depends on how many proposals are generated for a video
-        eval_batch_size = tf.shape(proposal_feats)[0]
+        eval_batch_size = tf.shape(proposal_feats)[0]   # N
         
         # intialize the rnn cell for captioning
         rnn_cell_caption = tf.contrib.rnn.LSTMCell(
@@ -181,11 +183,14 @@ class CaptionModel(object):
         multi_rnn_cell_caption = tf.contrib.rnn.MultiRNNCell([get_rnn_cell() for _ in range(self.options['num_rnn_layers'])], state_is_tuple=True)
 
         # start word
+        # 置N个proposal的起始都为START对应的单词索引
+        
         word_id = tf.fill([eval_batch_size], self.options['vocab']['<START>'])
         word_id = tf.to_int64(word_id)
-        word_ids = tf.expand_dims(word_id, axis=-1)
+        word_ids = tf.expand_dims(word_id, axis=-1)  # (N,1)
 
         # probability (confidence) for the predicted word
+        # 初始化所有单词的置信度为1
         word_confidences = tf.expand_dims(tf.fill([eval_batch_size], 1.), axis=-1)
 
         # initial state of caption generation
@@ -197,6 +202,7 @@ class CaptionModel(object):
             # initialize memory cell and hidden output, note that the returned state is a tuple containing all states for each cell in MultiRNNCell
             state = multi_rnn_cell_caption.zero_state(batch_size=eval_batch_size, dtype=tf.float32)
 
+            # proposal_feats_reshape : (N,110,500)--->(Nx110,500)
             proposal_feats_reshape = tf.reshape(proposal_feats, [-1, self.options['video_feat_dim']], name='video_feat_reshape')
 
 
@@ -213,14 +219,17 @@ class CaptionModel(object):
 
                 # get attention, receive both hidden state information (previous generated words) and video feature
                 # state[:, 1] return all hidden states for all cells in MultiRNNCell
-                h_state = tf.concat([s[1] for s in state], axis=-1)
-                h_state_tile = tf.tile(h_state, [1, self.options['max_proposal_len']])
+                h_state = tf.concat([s[1] for s in state], axis=-1)  # (N,1024)
+                h_state_tile = tf.tile(h_state, [1, self.options['max_proposal_len']])  # (N,110x1024)
+                # (N,110x1024)-->(Nx110,1024)
                 h_state_reshape = tf.reshape(h_state_tile, [-1, self.options['num_rnn_layers']*self.options['rnn_size']])
                 
                 # repeat to match each feature vector in the localized proposal
-                event_hidden_feats_tile = tf.tile(event_hidden_feats, [1, self.options['max_proposal_len']])
+                # (N,110x1024)-->(Nx110,1024)
+                event_hidden_feats_tile = tf.tile(event_hidden_feats, [1, self.options['max_proposal_len']])  
                 event_hidden_feats_reshape = tf.reshape(event_hidden_feats_tile, [-1, 2*self.options['rnn_size']])
 
+                # (Nx110,500) + (Nx110,1024) + (Nx110,1024) = (Nx110,2548)
                 feat_state_concat = tf.concat([proposal_feats_reshape, h_state_reshape, event_hidden_feats_reshape], axis=-1, name='feat_state_concat')
                 #feat_state_concat = tf.concat([tf.reshape(tf.tile(word_embed, [1, self.options['max_proposal_len']]), [-1, self.options['word_embed_size']]), proposal_feats_reshape, h_state_reshape, event_hidden_feats_reshape], axis=-1, name='feat_state_concat')
 
@@ -239,14 +248,16 @@ class CaptionModel(object):
                         num_outputs = 1,
                         activation_fn = None,
                         weights_initializer = tf.contrib.layers.xavier_initializer()
-                    )
+                    )  # (Nx110,2548)-->(Nx110,512)-->(Nx110,1)
 
                 # reshape to match
+                # (Nx110,1)-->(N,110)-->(N,1,110)
                 attention_reshape = tf.reshape(attention_layer2, [-1, self.options['max_proposal_len']], name='attention_reshape')
                 attention_score = tf.nn.softmax(attention_reshape, dim=-1, name='attention_score')
                 attention = tf.reshape(attention_score, [-1, 1, self.options['max_proposal_len']], name='attention')
 
                 # attended video feature
+                # (N,1,110)x(N,110,500) = (N,1,500)-->(N,500)
                 attended_proposal_feat = tf.matmul(attention, proposal_feats, name='attended_proposal_feat')
                 attended_proposal_feat_reshape = tf.reshape(attended_proposal_feat, [-1, self.options['video_feat_dim']], name='attended_proposal_feat_reshape')
 
@@ -267,34 +278,40 @@ class CaptionModel(object):
                                 weights_initializer=tf.contrib.layers.xavier_initializer()
                             )
                             '''
-                            context_feats_transform = event_hidden_feats
+                            context_feats_transform = event_hidden_feats  # (N,1024)
 
+                            # (N,500)-->(N,1024)
                             proposal_feats_transform = tf.contrib.layers.fully_connected(
-                                inputs = attended_proposal_feat_reshape,
+                                inputs = attended_proposal_feat_reshape,  
                                 num_outputs = 2*self.options['rnn_size'],
                                 activation_fn = tf.nn.tanh,
                                 weights_initializer = tf.contrib.layers.xavier_initializer()
                             )
                             
-                            
+                           
                             gate = tf.contrib.layers.fully_connected(
                                 inputs=tf.concat([word_embed, h_state, context_feats_transform, proposal_feats_transform], axis=-1),
                                 num_outputs=2*self.options['rnn_size'],
                                 activation_fn=tf.nn.sigmoid,
                                 weights_initializer=tf.contrib.layers.xavier_initializer()
-                            )
+                            )   # (N,1024)
 
+                            # (N,1024)x(N,1024),相当于对每个通道加权
                             gated_context_feats = tf.multiply(context_feats_transform, gate)
                             gated_proposal_feats = tf.multiply(proposal_feats_transform, 1.-gate)
-                            proposal_feats_full = tf.concat([gated_context_feats, gated_proposal_feats], axis=-1)
+                            proposal_feats_full = tf.concat([gated_context_feats, gated_proposal_feats], axis=-1)  # (N,2048)
                             
                     else:
                         proposal_feats_full = tf.concat([event_hidden_feats, attended_proposal_feat_reshape], axis=-1)
 
                 # proposal feature embedded into word space
-                proposal_feat_embed = self.build_video_feat_embedding(proposal_feats_full)
+                proposal_feat_embed = self.build_video_feat_embedding(proposal_feats_full)  # (N,2048)-->(N,512)
 
                 # get next state
+                # caption_output: (N,512)
+                # state:
+                #     0: (N,512)
+                #     1: (N,512)
                 caption_output, state = multi_rnn_cell_caption(tf.concat([proposal_feat_embed, word_embed], axis=-1), state)
 
                 # predict next word
@@ -303,12 +320,17 @@ class CaptionModel(object):
                         inputs=caption_output,
                         num_outputs=self.options['vocab_size'],
                         activation_fn=None
-                    )
+                    )  # (N,4414)
 
-                softmax = tf.nn.softmax(logits, name='softmax')
-                word_id = tf.argmax(softmax, axis=-1)
-                word_confidence = tf.reduce_max(softmax, axis=-1)
+                softmax = tf.nn.softmax(logits, name='softmax') # (N,4414)
+                word_id = tf.argmax(softmax, axis=-1)  # (N,) , 用argmax取id
+                word_confidence = tf.reduce_max(softmax, axis=-1)  # (N,) ， 用reduce_max 取置信度
+                
+                # 逐渐保存生成的结果
+                # word_ids : (N,1)--->(N,2)--->(N,3)........
                 word_ids = tf.concat([word_ids, tf.expand_dims(word_id, axis=-1)], axis=-1)
+                
+                # word_confidences : (N,1)-->(N,2)-->(N,3).......
                 word_confidences = tf.concat([word_confidences, tf.expand_dims(word_confidence, axis=-1)], axis=-1)
 
         #sentence_confidences = tf.reduce_sum(tf.log(tf.clip_by_value(word_confidences, 1e-20, 1.)), axis=-1)
@@ -366,7 +388,7 @@ class CaptionModel(object):
         proposal_weight = tf.placeholder(tf.float32, [self.options['num_anchors'], 2], name='proposal_weight')  # (120,2)
         inputs['proposal_weight'] = proposal_weight
        
-        # 构建RNN单元
+        # ----------------------------------------用于编码输入特征的RNN单元---------------------------------------------#
         rnn_cell_video_fw = tf.contrib.rnn.LSTMCell(
             num_units=self.options['rnn_size'],      # 512
             state_is_tuple=True, 
@@ -531,7 +553,7 @@ class CaptionModel(object):
         # 通过boolean_mask函数选取对应位置，由于正向时，时序位置和boolean_mask的位置是对应的
         forward_indices = tf.boolean_mask(tf.range(feat_len), boolean_mask)  # tf.boolean_mask直接返回对应mask位置的值
         
-        # rnn_outputs_fw_reshape : (T,512)
+        # rnn_outputs_fw_reshape : (N,512)
         event_feats_fw = tf.boolean_mask(rnn_outputs_fw_reshape, boolean_mask)  
         # proposal_caption_bw_reshape : (T)
       
@@ -556,7 +578,7 @@ class CaptionModel(object):
         # max_proposal_len = 110   提议对应的特征 (N,110,500)
         event_c3d_seq, _ = self.get_c3d_seq(video_feat_fw[0], start_ids, end_ids, self.options['max_proposal_len']) 
         
-        #不太明白上下文特征的选取？？？ 
+        #不太明白上下文特征的选取？？？ ,好像没有用到
         context_feats_fw = tf.gather_nd(rnn_outputs_fw_reshape, tf.expand_dims(start_ids, axis=-1))  # (T,512),(T,1) 
         context_feats_bw = tf.gather_nd(rnn_outputs_bw_reshape, tf.expand_dims(feat_len-1-end_ids, axis=-1))
 
@@ -569,8 +591,9 @@ class CaptionModel(object):
         caption_mask_proposed = tf.boolean_mask(caption_mask[0], boolean_mask, name='caption_mask_proposed')
 
         # the number of proposal-caption pairs for training
-        n_proposals = tf.shape(caption_proposed)[0]
+        n_proposals = tf.shape(caption_proposed)[0]   # 满足条件的提议个数
 
+        # -------------------------------------用于输出caption的RNN单元-----------------------------#
         rnn_cell_caption = tf.contrib.rnn.LSTMCell(
             num_units=self.options['rnn_size'],  # 隐藏层的神经元个数
             state_is_tuple=True, 
@@ -595,18 +618,23 @@ class CaptionModel(object):
         caption_loss = 0
         with tf.variable_scope('caption_module') as caption_scope:
 
-            batch_size = n_proposals
+            batch_size = n_proposals  # 在训练caption model时batch_size是所有满足条件的提议
 
             # initialize memory cell and hidden output, note that the returned state is a tuple containing all states for each cell in MultiRNNCell
             state = multi_rnn_cell_caption.zero_state(batch_size=batch_size, dtype=tf.float32)
 
-            # proposal_feats = event_c3d_seq
+            # proposal_feats = event_c3d_seq = (N,110,512)--> (Nx110,512)
             proposal_feats_reshape = tf.reshape(proposal_feats, [-1, self.options['video_feat_dim']], name='proposal_feats_reshape')
 
-            event_hidden_feats = tf.concat([event_feats_fw, event_feats_bw], axis=-1)   # 1024
+            # event_feats_fw : (T,512)
+            # event_feats_bw : (T,512)
+            event_hidden_feats = tf.concat([event_feats_fw, event_feats_bw], axis=-1)   # (T,1024) T<<110
 
-            event_hidden_feats_tile = tf.tile(event_hidden_feats, [1, self.options['max_proposal_len']])  # (?,112640)  112640 = 110x1024
-            event_hidden_feats_reshape = tf.reshape(event_hidden_feats_tile, [-1, 2*self.options['rnn_size']]) # (?,1024)
+            # (T,1024)----->(T,110x1024)
+            event_hidden_feats_tile = tf.tile(event_hidden_feats, [1, self.options['max_proposal_len']])  # (T,112640)  112640 = 110x1024
+            
+            # (Tx110,1024)
+            event_hidden_feats_reshape = tf.reshape(event_hidden_feats_tile, [-1, 2*self.options['rnn_size']]) # (Tx110,1024)
 
 
             ''' 
@@ -620,48 +648,48 @@ class CaptionModel(object):
                     caption_scope.reuse_variables()
 
                 # word embedding
-                word_embed = self.build_caption_embedding(caption_proposed[:, i])   # (?,512)
+                word_embed = self.build_caption_embedding(caption_proposed[:, i])   # caption_proposed : (N,30)，word_embed : (N,512)
 
                 # calculate attention over proposal feature elements
                 # state[:, 1] return all hidden states for all cells in MultiRNNCell
-                h_state = tf.concat([s[1] for s in state], axis=-1)  # (?,1024)
-                h_state_tile = tf.tile(h_state, [1, self.options['max_proposal_len']])  # 110x1024 = 112640
-                h_state_reshape = tf.reshape(h_state_tile, [-1, self.options['num_rnn_layers']*self.options['rnn_size']]) # (?,1024)
+                h_state = tf.concat([s[1] for s in state], axis=-1)  # (N,1024)
+                h_state_tile = tf.tile(h_state, [1, self.options['max_proposal_len']])  # (N,112640) 110x1024 = 112640
+                h_state_reshape = tf.reshape(h_state_tile, [-1, self.options['num_rnn_layers']*self.options['rnn_size']]) # (Nx110,1024)
                 
-                # proposal_feats_reshape : (?,500)
-                # h_state_reshape ： (?,1024)
-                # event_hidden_feats_reshape : (?,1024)
-                # (?,2548)
+                # proposal_feats_reshape : (Nx110,500)
+                # h_state_reshape ： (Nx110,1024)
+                # event_hidden_feats_reshape : (Nx110,1024)
+                # (Nx110,2548)
                 feat_state_concat = tf.concat([proposal_feats_reshape, h_state_reshape, event_hidden_feats_reshape], axis=-1, name='feat_state_concat')
                 #feat_state_concat = tf.concat([tf.reshape(tf.tile(word_embed, [1, self.options['max_proposal_len']]), [-1, self.options['word_embed_size']]), proposal_feats_reshape, h_state_reshape, event_hidden_feats_reshape], axis=-1, name='feat_state_concat')
 
-                #-------------------------------------------时序动态attention--------------------------------#
+                #-------------------------------------------对提议特征进行attention--------------------------------#
                 
                 # use a two-layer network to model attention over video feature sequence when predicting next word (dynamic)
-                # 2548--->512--->1
+                # (Nx110,2548)-->(Nx110,512)-->(Nx110,1)
                 with tf.variable_scope('attention') as attention_scope:
                     attention_layer1 = tf.contrib.layers.fully_connected(
                         inputs = feat_state_concat,
                         num_outputs = self.options['attention_hidden_size'],  # 512
                         activation_fn = tf.nn.tanh,
                         weights_initializer = tf.contrib.layers.xavier_initializer()
-                    )  # (?,512)
+                    )  # (Nx110,512)
                     attention_layer2 = tf.contrib.layers.fully_connected(
                         inputs = attention_layer1,
                         num_outputs = 1,
                         activation_fn = None,
                         weights_initializer = tf.contrib.layers.xavier_initializer()
-                    )  # (?,1)
+                    )  # (Nx110,1)
 
                 # reshape to match
-                attention_reshape = tf.reshape(attention_layer2, [-1, self.options['max_proposal_len']], name='attention_reshape')  # (?,110)
-                attention_score = tf.nn.softmax(attention_reshape, dim=-1, name='attention_score')  # (?,110)
-                attention = tf.reshape(attention_score, [-1, 1, self.options['max_proposal_len']], name='attention') # (?,1,110)
+                attention_reshape = tf.reshape(attention_layer2, [-1, self.options['max_proposal_len']], name='attention_reshape')  # (N,110)
+                attention_score = tf.nn.softmax(attention_reshape, dim=-1, name='attention_score')  # (N,110)
+                attention = tf.reshape(attention_score, [-1, 1, self.options['max_proposal_len']], name='attention') # (N,1,110)
 
                 # attended video feature
-                # (?,1,110)x(?,110,500) = (?,1, 500)
+                # (N,1,110)x(N,110,500) = (N, 1, 500)
                 attended_proposal_feat = tf.matmul(attention, proposal_feats, name='attended_proposal_feat')
-                # (?,500)
+                # (N,500)
                 attended_proposal_feat_reshape = tf.reshape(attended_proposal_feat, [-1, self.options['video_feat_dim']], name='attended_proposal_feat_reshape')
 
                 # ----------------------------------上下文门机制-------------------------------------#
@@ -670,7 +698,7 @@ class CaptionModel(object):
                 else:
                     if self.options['context_gating']:
                         # model a gate to weight each element of context and feature
-                        attended_proposal_feat_reshape = tf.nn.tanh(attended_proposal_feat_reshape)
+                        attended_proposal_feat_reshape = tf.nn.tanh(attended_proposal_feat_reshape)  # (N,500)
                         with tf.variable_scope('context_gating'):
                             '''
                             context_feats_transform = tf.contrib.layers.fully_connected(
@@ -681,24 +709,37 @@ class CaptionModel(object):
                             )
                             '''
 
-                            context_feats_transform = event_hidden_feats
+                            context_feats_transform = event_hidden_feats   # (N,1024)
 
+                            # 将attention后的特征投影到同一空间(1024维)
                             proposal_feats_transform = tf.contrib.layers.fully_connected(
                                 inputs = attended_proposal_feat_reshape,
-                                num_outputs = 2*self.options['rnn_size'],
+                                num_outputs = 2*self.options['rnn_size'],  # 1024
                                 activation_fn = tf.nn.tanh,
                                 weights_initializer = tf.contrib.layers.xavier_initializer()
                             )
                             
-                            # context gating
+                            # context gating，
+                            # gate ： 控制上下文特征的权重
+                            # 1-gate ： 提议特征对应的权重
+                            
+                             # word_embed : (N,512)
+                             # h_state : (N,1024)
+                             # context_feats_transform : (N,1024)
+                             # proposal_feats_transform : (N,1024)
+                                
+                             # (N,3584)--> (N,1024)
                             gate = tf.contrib.layers.fully_connected(
+                     
                                 inputs=tf.concat([word_embed, h_state, context_feats_transform, proposal_feats_transform], axis=-1),
                                 num_outputs=2*self.options['rnn_size'],
                                 activation_fn=tf.nn.sigmoid,
                                 weights_initializer=tf.contrib.layers.xavier_initializer()
                             )
+                            
+                            # (N,1024)x(N,1024) = (N,1024),相当于对每个通道分配不同的权重
                             gated_context_feats = tf.multiply(context_feats_transform, gate)
-                            gated_proposal_feats = tf.multiply(proposal_feats_transform, 1.-gate)
+                            gated_proposal_feats = tf.multiply(proposal_feats_transform, 1.-gate)  # 
                             proposal_feats_full = tf.concat([gated_context_feats, gated_proposal_feats], axis=-1)  # 生成最终用于caption的特征
                             
                     else:
@@ -706,13 +747,18 @@ class CaptionModel(object):
 
 
                 # proposal feature embedded into word space
-                # 将提议特征用全连接层进行降维 (?,2048)--->(?,512)
+                # 将提议特征用全连接层进行降维 (N,1024)--->(N,512)
                 proposal_feat_embed = self.build_video_feat_embedding(proposal_feats_full)
 
-                # 送入rnn中建模
+                # proposal_feat_embed : (N,512)
+                # word_embed : (N,512)
+                # caption_ouput : (N,512)
+                # state : 
+                #    (N,512)
+                #    (N,512)
                 caption_output, state = multi_rnn_cell_caption(tf.concat([proposal_feat_embed, word_embed], axis=-1), state)
 
-                # predict next word
+                # predict next word  (N,512)---> (N,4414)
                 with tf.variable_scope('logits') as logits_scope:
                     logits = tf.contrib.layers.fully_connected(
                         inputs=caption_output,
@@ -720,11 +766,13 @@ class CaptionModel(object):
                         activation_fn=None
                     )
 
+               # i+1 用于获取真实label
+               # 因为是通过i来预测i+1位置的单词
                 labels = caption_proposed[:, i+1] # predict next word
 
                 # loss term
                 loss = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=logits, labels=labels)
-                output_mask = tf.to_float(caption_mask_proposed[:,i])
+                output_mask = tf.to_float(caption_mask_proposed[:,i])  # caption_mask_proposed用于指示单词结束的地方，因为句子长度不一样
                 loss = tf.reduce_sum(tf.multiply(loss, output_mask))
                 
                 caption_loss = caption_loss + loss
