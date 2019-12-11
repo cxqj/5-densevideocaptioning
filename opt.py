@@ -31,6 +31,7 @@ def default_options():
 
     ### MODEL CONFIG
     options['video_feat_dim'] = 500 # dim of image feature
+    # 经过LSTM编码后的特征维度应该和词嵌入的维度保持一致
     options['encoded_video_feat_dim'] = 512 # should be equal to rnn size
     options['word_embed_size'] = 512    # size of word embedding
     options['caption_seq_len'] = 30  # maximu length of a sentence
@@ -81,6 +82,7 @@ def default_options():
 
     ### INFERENCE
     options['tiou_measure'] = [0.3, 0.5, 0.7, 0.9]
+    # 取前100个提议用于训练，为了更快的训练
     options['max_proposal_num'] = 100   # just for fast evaluation during training phase
 
     ### LOGGING
