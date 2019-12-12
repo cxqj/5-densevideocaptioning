@@ -99,17 +99,17 @@ class DataProvision:
 
     # process caption batch data into standard format
     def process_batch_paragraph(self, batch_paragraph):
-        paragraph_length = []
+        paragraph_length = []  # T
         caption_length = []
         for captions in batch_paragraph:
-            paragraph_length.append(len(captions))
-            cap_len = []
+            paragraph_length.append(len(captions))   # caption 数 ： T
+            cap_len = []   # 记录每一个时间点的caption长度
             for caption in captions:
-                cap_len.append(len(caption))
+                cap_len.append(len(caption))  
             
             caption_length.append(cap_len)
 
-        caption_num = len(batch_paragraph[0])
+        caption_num = len(batch_paragraph[0])  # T
         input_idx = np.zeros((len(batch_paragraph), caption_num, self._options['caption_seq_len']), dtype='int32')   # (1,T,30)
         input_mask = np.zeros_like(input_idx)
         
@@ -123,7 +123,7 @@ class DataProvision:
         return input_idx, input_mask
 
     # provide batch data
-    def iterate_batch(self, split, batch_size):
+    def iterate_batch(self, split, batch_size):  # batch_size  = 1
 
         ids = list(self._ids[split])
 
@@ -131,7 +131,7 @@ class DataProvision:
             print('Randomly shuffle training data ...')
             random.shuffle(ids)
 
-        current = 0
+        current = 0  # 用于指示遍历id
         
         while True:
 
@@ -147,8 +147,8 @@ class DataProvision:
 
             i = 0 # batch_size = 1
             vid = ids[i+current]
-            feature_fw = self._features[vid]
-            feature_len = feature_fw.shape[0]
+            feature_fw = self._features[vid]   # (T,C)
+            feature_len = feature_fw.shape[0]  # T
 
             if 'print_debug' in self._options and self._options['print_debug']:
                 print('vid: %s'%vid)
@@ -180,7 +180,7 @@ class DataProvision:
             # corresponding backward index
             gt_proposal_caption_bw = np.zeros(shape=(feature_len, ), dtype='int32')  # (T,)
             # ground truth encoded caption in each time step
-            gt_caption = [[0] for i in range(feature_len)]
+            gt_caption = [[0] for i in range(feature_len)]   # 保存每个时间点对应的caption
 
             paragraph = self._captions[vid]
             
@@ -197,9 +197,11 @@ class DataProvision:
                     temp = t1
                     t1 = t2
                     t2 = temp
+                # gt fw
                 start = t1
                 end = t2
 
+                # gt bw
                 start_bw = duration - end
                 end_bw = duration - start
 
@@ -208,18 +210,20 @@ class DataProvision:
                 if end > end_time or start > end_time:
                     continue
                 
-                # 计算该提议相对于特征图上的位置
-                end_feat_id = max(int(round(end*feature_len/duration)-1), 0)
-                start_feat_id = max(int(round(start*feature_len/duration) - 1), 0)
+                # 计算正向时gt起始时间和结束时间在特征序列上对应的位置
+                end_feat_id = max(int(round(end*feature_len/duration)-1), 0)  # 正向Gt结束时间对应特征序列上的位置
+                start_feat_id = max(int(round(start*feature_len/duration) - 1), 0)  # 正向GT开始时间对应特征序列上的位置
 
+                # center: 1/2 * (start+end) : 求出动作提议的中心点
+                # center / duration : 求出中点在duration的百分比
                 mid_feature_id = int(round(((1.-self._options['proposal_tiou_threshold'])*end + self._options['proposal_tiou_threshold']*start) * feature_len / duration)) - 1
-                mid_feature_id = max(0, mid_feature_id)
+                mid_feature_id = max(0, mid_feature_id)   # 正向中心时间对应特征序列上的位置
 
-                # 以特征序列长度为中心点开始生成一系列anchor
+                # 每一次遍历时所有的anchor共享结束时间
                 for i in range(mid_feature_id, feature_len):
                     overlap = False
                     for anchor_id, anchor in enumerate(self._anchors):
-                        end_pred = (float(i+1)/feature_len) * duration  # 结束时间点不变，开始时间点依次减小，每次迭代完成后再增加结束时间点
+                        end_pred = (float(i+1)/feature_len) * duration # 所有的预设anchor共享相同的结束时间 
                         start_pred = end_pred - anchor
 
                         intersection = max(0, min(end, end_pred) - max(start, start_pred))
@@ -230,17 +234,18 @@ class DataProvision:
                         if iou > self._options['proposal_tiou_threshold']:
                             overlap = True
                             # the corresonding label of backward lstm
-                            i_bw = feature_len - 1 - (start_feat_id+end_feat_id-i)    # 反向时满足条件的提议对应的feat位置索引
+                            # 随着i增大，i_bw逐渐增大
+                            i_bw = feature_len - 1 - (start_feat_id+end_feat_id-i)  # 没太看懂 
                             i_bw = max(min(i_bw, feature_len-1), 0)
-
-                            
-                            gt_proposal_fw[i, anchor_id] = 1
-                            gt_proposal_bw[i_bw, anchor_id] = 1    # anchor_id : 第几个anchor满足条件
-                                
                         
+                            # 用于指示什么时间位置的第几种anchor满足条件                
+                            gt_proposal_fw[i, anchor_id] = 1      # (T,120)
+                            gt_proposal_bw[i_bw, anchor_id] = 1    # (T,120)
+                                
+                       
                             if iou > self._options['caption_tiou_threshold']:
-                                gt_proposal_caption_fw[i] = 1      # 将对应时间位置置为1
-                                gt_proposal_caption_bw[i] = i_bw
+                                gt_proposal_caption_fw[i] = 1      # (T,)
+                                gt_proposal_caption_bw[i] = i_bw   # (T,)
                                 gt_caption[i] = paragraph[stamp_id]
 
                         elif overlap:
@@ -249,7 +254,7 @@ class DataProvision:
             # 相当于记录了那个时间位置的那种anchor尺度满足条件
             batch_proposal_fw.append(gt_proposal_fw)  # (T,120)   # 记录了哪个时间点哪种尺度的anchor满足条件
             batch_proposal_bw.append(gt_proposal_bw)  # (T,120)
-            batch_proposal_caption_fw.append(gt_proposal_caption_fw)  # (T,)  记录了哪个时间点应该送入caption model
+            batch_proposal_caption_fw.append(gt_proposal_caption_fw)  # (T,)  记录了哪个时间点的lstm状态应该送入caption model
             batch_proposal_caption_bw.append(gt_proposal_caption_bw)  # (T,)
             batch_paragraph.append(gt_caption)
             
@@ -259,11 +264,11 @@ class DataProvision:
             batch_feature_fw = np.asarray(batch_feature_fw, dtype='float32')  # (1,T,500)
             batch_feature_bw = np.asarray(batch_feature_bw, dtype='float32')  # (1,T,500)
             
-            # 2. sentence
+            # 2. gt caption
             batch_caption = np.asarray(batch_caption, dtype='int32')  # (1,T,30)
             batch_caption_mask = np.asarray(batch_caption_mask, dtype='int32') # (1,T,30)
 
-            # 3.采用SST算法生成的提议
+            # 3. gt proposal
             batch_proposal_fw = np.asarray(batch_proposal_fw, dtype='int32')  # (1,T,120)
             batch_proposal_bw = np.asarray(batch_proposal_bw, dtype='int32')  # (1,T,120)
             
@@ -273,6 +278,7 @@ class DataProvision:
             
 
             # serve as a tuple
+            # batch_proposal_caption: indicate whether to select the lstm state to feed into captioning module (based on tIoU)
             batch_data = {'video_feat_fw': batch_feature_fw, 'video_feat_bw': batch_feature_bw, 'caption': batch_caption, 'caption_mask': batch_caption_mask, 'proposal_fw': batch_proposal_fw, 'proposal_bw': batch_proposal_bw, 'proposal_caption_fw': batch_proposal_caption_fw, 'proposal_caption_bw': batch_proposal_caption_bw, 'proposal_weight': np.array(self._proposal_weight)}
 
             
