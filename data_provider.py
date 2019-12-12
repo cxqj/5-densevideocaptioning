@@ -281,7 +281,7 @@ class DataProvision:
             # batch_proposal_caption: indicate whether to select the lstm state to feed into captioning module (based on tIoU)
             batch_data = {'video_feat_fw': batch_feature_fw, 'video_feat_bw': batch_feature_bw, 'caption': batch_caption, 'caption_mask': batch_caption_mask, 'proposal_fw': batch_proposal_fw, 'proposal_bw': batch_proposal_bw, 'proposal_caption_fw': batch_proposal_caption_fw, 'proposal_caption_bw': batch_proposal_caption_bw, 'proposal_weight': np.array(self._proposal_weight)}
 
-            
+            # yield关键字相当于生成一个迭代器，可以将其简单理解为return
             yield batch_data
 
             current = current + batch_size
