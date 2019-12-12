@@ -840,3 +840,5 @@ class CaptionModel(object):
 
 
         return event_c3d_sequence, event_c3d_mask   # 只需要 event_c3d_sequence，event_c3d_mask没有用到
+
+    
