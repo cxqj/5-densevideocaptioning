@@ -245,7 +245,7 @@ class DataProvision:
                        
                             if iou > self._options['caption_tiou_threshold']:
                                 gt_proposal_caption_fw[i] = 1      # (T,)
-                                gt_proposal_caption_bw[i] = i_bw   # (T,)
+                                gt_proposal_caption_bw[i] = i_bw   # (T,)  indicate whether to select the lstm state to feed into captioning module (based on tIoU)
                                 gt_caption[i] = paragraph[stamp_id]
 
                         elif overlap:
@@ -261,20 +261,20 @@ class DataProvision:
             batch_caption, batch_caption_mask = self.process_batch_paragraph(batch_paragraph)
 
             # 1. 视频特征
-            batch_feature_fw = np.asarray(batch_feature_fw, dtype='float32')  # (1,T,500)
-            batch_feature_bw = np.asarray(batch_feature_bw, dtype='float32')  # (1,T,500)
+            batch_feature_fw = np.asarray(batch_feature_fw, dtype='float32')  # (B,T,500)
+            batch_feature_bw = np.asarray(batch_feature_bw, dtype='float32')  # (B,T,500)
             
             # 2. gt caption
-            batch_caption = np.asarray(batch_caption, dtype='int32')  # (1,T,30)
-            batch_caption_mask = np.asarray(batch_caption_mask, dtype='int32') # (1,T,30)
+            batch_caption = np.asarray(batch_caption, dtype='int32')  # (B,T,30)
+            batch_caption_mask = np.asarray(batch_caption_mask, dtype='int32') # (B,T,30)
 
             # 3. gt proposal
-            batch_proposal_fw = np.asarray(batch_proposal_fw, dtype='int32')  # (1,T,120)
-            batch_proposal_bw = np.asarray(batch_proposal_bw, dtype='int32')  # (1,T,120)
+            batch_proposal_fw = np.asarray(batch_proposal_fw, dtype='int32')  # (B,T,120)
+            batch_proposal_bw = np.asarray(batch_proposal_bw, dtype='int32')  # (B,T,120)
             
             # 4. 用于指示哪个时间步的提议符合Caption的条件
-            batch_proposal_caption_fw = np.asarray(batch_proposal_caption_fw, dtype='int32')  # (1,T)
-            batch_proposal_caption_bw = np.asarray(batch_proposal_caption_bw, dtype='int32')  # (1,T)
+            batch_proposal_caption_fw = np.asarray(batch_proposal_caption_fw, dtype='int32')  # (B,T)
+            batch_proposal_caption_bw = np.asarray(batch_proposal_caption_bw, dtype='int32')  # (B,T)
             
 
             # serve as a tuple
