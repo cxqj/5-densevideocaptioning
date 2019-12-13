@@ -110,7 +110,7 @@ def test(options):
         print('\nProcessed %d-th video: %s'%(count, vid))
 
         # video feature sequence 
-        video_feat_fw = features[vid]['c3d_fc7_features'].value
+        video_feat_fw = features[vid]['c3d_fc7_features'].value   # 这才是正确的特征加载方式
         video_feat_bw = np.flip(video_feat_fw, axis=0)
         video_feat_fw = np.expand_dims(video_feat_fw, axis=0)
         video_feat_bw = np.expand_dims(video_feat_bw, axis=0)
@@ -152,7 +152,7 @@ def test(options):
                 
                 hidden_feat = np.concatenate([rnn_outputs_fw[i], rnn_outputs_bw[i_bw]], axis=-1)
                 
-                proposal_feats = video_feat_fw[0][feat_len-1-i_bw:i+1]
+                proposal_feats = video_feat_fw[0][feat_len-1-i_bw:i+1]   # 所有提议共享共同的结束时间i+1
                 proposal_infos.append({'timestamp':[start, end], 'score': proposal_score[i,j], 'event_hidden_feats': hidden_feat, 'proposal_feats': proposal_feats})
                             
                 pre_start = start
