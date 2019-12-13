@@ -626,15 +626,15 @@ class CaptionModel(object):
             # proposal_feats = event_c3d_seq = (N,110,512)--> (Nx110,512)
             proposal_feats_reshape = tf.reshape(proposal_feats, [-1, self.options['video_feat_dim']], name='proposal_feats_reshape')
 
-            # event_feats_fw : (T,512)
-            # event_feats_bw : (T,512)
-            event_hidden_feats = tf.concat([event_feats_fw, event_feats_bw], axis=-1)   # (T,1024) T<<110
+            # event_feats_fw : (N,512)
+            # event_feats_bw : (N,512)
+            event_hidden_feats = tf.concat([event_feats_fw, event_feats_bw], axis=-1)   # (N,1024) 
 
-            # (T,1024)----->(T,110x1024)
-            event_hidden_feats_tile = tf.tile(event_hidden_feats, [1, self.options['max_proposal_len']])  # (T,112640)  112640 = 110x1024
+            # (N,1024)----->(N,110x1024)
+            event_hidden_feats_tile = tf.tile(event_hidden_feats, [1, self.options['max_proposal_len']])  # (N,110x1024)  112640 = 110x1024
             
-            # (Tx110,1024)
-            event_hidden_feats_reshape = tf.reshape(event_hidden_feats_tile, [-1, 2*self.options['rnn_size']]) # (Tx110,1024)
+            # (Nx110,1024)
+            event_hidden_feats_reshape = tf.reshape(event_hidden_feats_tile, [-1, 2*self.options['rnn_size']]) # (Nx110,1024)
 
 
             ''' 
@@ -653,12 +653,13 @@ class CaptionModel(object):
                 # calculate attention over proposal feature elements
                 # state[:, 1] return all hidden states for all cells in MultiRNNCell
                 h_state = tf.concat([s[1] for s in state], axis=-1)  # (N,1024)
-                h_state_tile = tf.tile(h_state, [1, self.options['max_proposal_len']])  # (N,112640) 110x1024 = 112640
+                h_state_tile = tf.tile(h_state, [1, self.options['max_proposal_len']])  # (N,110x1024) 
                 h_state_reshape = tf.reshape(h_state_tile, [-1, self.options['num_rnn_layers']*self.options['rnn_size']]) # (Nx110,1024)
                 
-                # proposal_feats_reshape : (Nx110,500)
-                # h_state_reshape ： (Nx110,1024)
-                # event_hidden_feats_reshape : (Nx110,1024)
+                # proposal_feats_reshape : (Nx110,500)       # 视频特征
+                # h_state_reshape ： (Nx110,1024)     # 隐状态
+                # event_hidden_feats_reshape : (Nx110,1024)  # 上下文特征
+                
                 # (Nx110,2548)
                 feat_state_concat = tf.concat([proposal_feats_reshape, h_state_reshape, event_hidden_feats_reshape], axis=-1, name='feat_state_concat')
                 #feat_state_concat = tf.concat([tf.reshape(tf.tile(word_embed, [1, self.options['max_proposal_len']]), [-1, self.options['word_embed_size']]), proposal_feats_reshape, h_state_reshape, event_hidden_feats_reshape], axis=-1, name='feat_state_concat')
@@ -666,6 +667,7 @@ class CaptionModel(object):
                 #-------------------------------------------对提议特征进行attention--------------------------------#
                 
                 # use a two-layer network to model attention over video feature sequence when predicting next word (dynamic)
+                # 注意力权重的计算相当于综合考虑了视频特征，上下文向量，cell隐状态
                 # (Nx110,2548)-->(Nx110,512)-->(Nx110,1)
                 with tf.variable_scope('attention') as attention_scope:
                     attention_layer1 = tf.contrib.layers.fully_connected(
@@ -723,10 +725,10 @@ class CaptionModel(object):
                             # gate ： 控制上下文特征的权重
                             # 1-gate ： 提议特征对应的权重
                             
-                             # word_embed : (N,512)
-                             # h_state : (N,1024)
-                             # context_feats_transform : (N,1024)
-                             # proposal_feats_transform : (N,1024)
+                             # word_embed : (N,512)   # 词嵌入特征
+                             # h_state : (N,1024)     # hidden state
+                             # context_feats_transform : (N,1024)  # 对应经lstm编码后整个视频的状态也就是上下文信息
+                             # proposal_feats_transform : (N,1024) # 提议原始c3d特征
                                 
                              # (N,3584)--> (N,1024)
                             gate = tf.contrib.layers.fully_connected(
