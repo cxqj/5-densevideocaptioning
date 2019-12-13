@@ -37,7 +37,7 @@ video_ids = [video_id.strip() for video_id in video_ids]
 
 
 feature_lengths = dict()
-proposal_lengths = []
+proposal_lengths = []  # 保存所有标注文件中真实动作的时长
 for video_id in video_ids:
     data = train_data[video_id]
     timestamps = data['timestamps']
@@ -58,15 +58,16 @@ for video_id in video_ids:
         proposal_lengths.append(clip_len)
         
     
-proposal_lengths = np.array(proposal_lengths).reshape(len(proposal_lengths), 1)
+proposal_lengths = np.array(proposal_lengths).reshape(len(proposal_lengths), 1)  # (37421,1)
 print('Clustering all proposals ...')
+# 用Kmeans算法进行聚类，聚类中心为128个
 kmeans = KMeans(n_clusters=n_anchors, random_state=0).fit(proposal_lengths)
-anchors = kmeans.cluster_centers_
+anchors = kmeans.cluster_centers_   # (128,1)
 anchors = np.array(anchors.reshape(anchors.shape[0],), dtype=np.float32)
 anchors = list(anchors)
 
 # remove duplicate
-anchors = sorted(list(set(anchors)))
+anchors = sorted(list(set(anchors)))   # 去除重复点后按从小到大排序
 
 print('Number of anchors: %d'%len(anchors))
 
@@ -120,6 +121,7 @@ class get_proposal_label_thread (threading.Thread):
                     temp = t1
                     t1 = t2
                     t2 = temp
+                # gt start and end
                 start = t1
                 end = t2
 
@@ -176,6 +178,8 @@ sum_video_length = sample_ratio*sum(feature_lengths.values())
 weights = [[0., 0.] for _ in range(n_anchors)]
 out_weight_path = 'weights.json'
 
+
+# 获取正负样本权重
 # samplg to get anchor weights
 print('Get anchor weights by sampling ...')
 get_proposal_label(sample_num, feature_lengths, train_data, video_ids, n_anchors, anchors, count_anchors)
