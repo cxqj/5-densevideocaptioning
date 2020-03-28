@@ -55,7 +55,6 @@ class DataProvision:
         
 
         # load label weight data
-        # 暂时不知道这些label权重干嘛的
         print('Loading label weight data ...')
         self._proposal_weight = json.load(open(os.path.join(self._options['caption_data_root'], 'anchors', 'weights.json')))
         if self._options['proposal_tiou_threshold'] != 0.5:
@@ -201,6 +200,8 @@ class DataProvision:
                 start = t1
                 end = t2
 
+                # fw:[0,20,40,100]
+                # bw:[0,60,80,100]
                 # gt bw
                 start_bw = duration - end
                 end_bw = duration - start
@@ -252,9 +253,9 @@ class DataProvision:
                             break
                                 
             # 相当于记录了那个时间位置的那种anchor尺度满足条件
-            batch_proposal_fw.append(gt_proposal_fw)  # (T,120)   # 记录了哪个时间点哪种尺度的anchor满足条件
+            batch_proposal_fw.append(gt_proposal_fw)  # (T,120)   # 记录了哪个时间点哪种尺度的anchor满足正样本条件
             batch_proposal_bw.append(gt_proposal_bw)  # (T,120)
-            batch_proposal_caption_fw.append(gt_proposal_caption_fw)  # (T,)  记录了哪个时间点的lstm状态应该送入caption model
+            batch_proposal_caption_fw.append(gt_proposal_caption_fw)  # (T,)  记录了哪个时间点的lstm状态应该送入caption model(也就是proposal的质量很高)
             batch_proposal_caption_bw.append(gt_proposal_caption_bw)  # (T,)
             batch_paragraph.append(gt_caption)
             
@@ -279,7 +280,15 @@ class DataProvision:
 
             # serve as a tuple
             # batch_proposal_caption: indicate whether to select the lstm state to feed into captioning module (based on tIoU)
-            batch_data = {'video_feat_fw': batch_feature_fw, 'video_feat_bw': batch_feature_bw, 'caption': batch_caption, 'caption_mask': batch_caption_mask, 'proposal_fw': batch_proposal_fw, 'proposal_bw': batch_proposal_bw, 'proposal_caption_fw': batch_proposal_caption_fw, 'proposal_caption_bw': batch_proposal_caption_bw, 'proposal_weight': np.array(self._proposal_weight)}
+            batch_data = {'video_feat_fw': batch_feature_fw, 
+                          'video_feat_bw': batch_feature_bw, 
+                          'caption': batch_caption, 
+                          'caption_mask': batch_caption_mask, 
+                          'proposal_fw': batch_proposal_fw, 
+                          'proposal_bw': batch_proposal_bw, 
+                          'proposal_caption_fw': batch_proposal_caption_fw, 
+                          'proposal_caption_bw': batch_proposal_caption_bw, 
+                          'proposal_weight': np.array(self._proposal_weight)}
 
             # yield关键字相当于生成一个迭代器，可以将其简单理解为return
             yield batch_data
