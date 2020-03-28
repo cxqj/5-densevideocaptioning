@@ -32,7 +32,7 @@ def evaluation(options, data_provision, sess, inputs, t_loss):
     val_proposal_loss_list =[]
     val_caption_loss_list = []
     val_count = min(data_provision.get_size('val'), options['loss_eval_num'])   #options['loss_eval_num']  拿1000个提议来评估loss
-    batch_size = options['batch_size']
+    batch_size = options['batch_size']  # 1
     
     count = 0
     """
@@ -118,29 +118,34 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
     results = {}
     
     count = 0
-    batch_size = options['eval_batch_size']    # default batch size to evaluate
+    batch_size = options['eval_batch_size']    # default batch size to evaluate(1)
     assert batch_size == 1
     
-    eval_num = batch_size*options['metric_eval_num']
+    eval_num = batch_size*options['metric_eval_num']   #1000评估1000个视频
     print('Will evaluate %d samples'%eval_num)
 
     val_ids = data_provision.get_ids('val')[:eval_num]
-    anchors = data_provision.get_anchors()
+    anchors = data_provision.get_anchors()  #120种不同时长的anchor
     localizaitons = data_provision.get_localization()   # 真实的标注文件
 
     for batch_data in data_provision.iterate_batch('val', batch_size):
         print('\nProcessed %d-th batch \n'%count)
         vid = val_ids[count]
         print('video id: %s'%vid)
-        # proposal_score_fw ： (T,120)   rnn_outputs : (T,512)
-        proposal_score_fw, proposal_score_bw, rnn_outputs_fw, rnn_outputs_bw = sess.run([proposal_outputs['proposal_score_fw'], proposal_outputs['proposal_score_bw'], proposal_outputs['rnn_outputs_fw'], proposal_outputs['rnn_outputs_bw']], feed_dict={proposal_inputs['video_feat_fw']:batch_data['video_feat_fw'], proposal_inputs['video_feat_bw']:batch_data['video_feat_bw']})
+        # 输入视频特征，输出每个anchor的得分和编码后的视频
+        proposal_score_fw, proposal_score_bw, rnn_outputs_fw, rnn_outputs_bw = sess.run([proposal_outputs['proposal_score_fw'], 
+                                                                                         proposal_outputs['proposal_score_bw'], 
+                                                                                         proposal_outputs['rnn_outputs_fw'],
+                                                                                         proposal_outputs['rnn_outputs_bw']], 
+                                                                                        feed_dict={proposal_inputs['video_feat_fw']:batch_data['video_feat_fw'], 
+                                                                                                   proposal_inputs['video_feat_bw']:batch_data['video_feat_bw']})
         
         feat_len = batch_data['video_feat_fw'][0].shape[0]  # T
         duration = localizaitons['val'][vid]['duration']
         
         '''calculate final score by summarizing forward score and backward score
         '''
-        proposal_score = np.zeros((feat_len, options['num_anchors']))  # 记录最终的提议得分
+        proposal_score = np.zeros((feat_len, options['num_anchors']))  
         proposal_infos = []
 
         # 遍历某个batch_size的i*j个预设anchor
@@ -149,7 +154,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
             for j in range(options['num_anchors']):
                 forward_score = proposal_score_fw[i,j]    # 前向得分
                 # calculate time stamp
-                end = (float(i+1)/feat_len)*duration
+                end = (float(i+1)/feat_len)*duration  
                 start = end-anchors[j]
                 start = max(0., start)
 
@@ -177,7 +182,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         proposal_feats = batch_data['video_feat_fw'][0]  
         proposal_infos.append({'timestamp':[0., duration], 'score': 1., 'event_hidden_feats': hidden_feat, 'proposal_feats': proposal_feats})
         
-        # proposals_infos:(scores,timestamps,proposals_feats,events_hidden_features)
+        #按得分排序，取前top—K
         proposal_infos = sorted(proposal_infos, key=getKey, reverse=True)
         proposal_infos = proposal_infos[:options['max_proposal_num']]   # max_proposal_num : 100
 
@@ -189,6 +194,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
 
         
         event_hidden_feats = np.array(event_hidden_feats, dtype='float32')  # (100.1024)
+        
         # 将所有提议的最大长度约束到110
         proposal_feats, _ = process_batch_data(proposal_feats, options['max_proposal_len']) # max_proposal_len = 110  proposal_feats : (100,110,500)
 
@@ -296,7 +302,7 @@ def train(options):
     status_file = options['status_file']   # checkpoints/1/status.json,保存模型运行状态信息的文件
     lr = lr_init
     lr_decay_factor = options['lr_decay_factor']  # 0.1
-    n_epoch_to_decay = options['n_epoch_to_decay'] # when to decay the lr [40,20]
+    n_epoch_to_decay = options['n_epoch_to_decay'] # when to decay the lr [60,40,20]
     next_epoch_to_decay = n_epoch_to_decay.pop()  # 20
 
     n_iters_per_epoch = data_provision.get_size('train') // batch_size    # 10009
