@@ -230,13 +230,18 @@ class DataProvision:
                         intersection = max(0, min(end, end_pred) - max(start, start_pred))
                         union = min(max(end, end_pred) - min(start, start_pred), end-start + end_pred-start_pred)
                         iou = float(intersection) / (union + 1e-8)
+                        
+                        
+                        # fw  s = s  e = e   m = (s+e) / 2  
+                        # bw  s_bw = fl - e   e_bw = fl - s  m_bw = (fl-e + fl-s) / 2 = fl-(s+e)/2
 
-
+                        # [0,20,60,100]  i = 40   i = 41   100 - (20+60 - 40) = 60   100-(20+40-41) = 61
+                        # [0,40,80,100]  i_bw = 60  i_bw = 61   
                         if iou > self._options['proposal_tiou_threshold']:
                             overlap = True
                             # the corresonding label of backward lstm
-                            # 随着i增大，i_bw逐渐增大
-                            i_bw = feature_len - 1 - (start_feat_id+end_feat_id-i)  # 没太看懂 
+                            # 当i为正向的中点时，i_bw正好为反向时的中点，然后随着i的增大，i_bw也随之增大刚好满足反向条件
+                            i_bw = feature_len - 1 - (start_feat_id+end_feat_id-i)  
                             i_bw = max(min(i_bw, feature_len-1), 0)
                         
                             # 用于指示什么时间位置的第几种anchor满足条件                
@@ -262,20 +267,20 @@ class DataProvision:
             batch_caption, batch_caption_mask = self.process_batch_paragraph(batch_paragraph)
 
             # 1. 视频特征
-            batch_feature_fw = np.asarray(batch_feature_fw, dtype='float32')  # (B,T,500)
-            batch_feature_bw = np.asarray(batch_feature_bw, dtype='float32')  # (B,T,500)
+            batch_feature_fw = np.asarray(batch_feature_fw, dtype='float32')  # (1,T,500)
+            batch_feature_bw = np.asarray(batch_feature_bw, dtype='float32')  # (1,T,500)
             
             # 2. gt caption
-            batch_caption = np.asarray(batch_caption, dtype='int32')  # (B,T,30)
-            batch_caption_mask = np.asarray(batch_caption_mask, dtype='int32') # (B,T,30)
+            batch_caption = np.asarray(batch_caption, dtype='int32')  # (1,T,30)
+            batch_caption_mask = np.asarray(batch_caption_mask, dtype='int32') # (1,T,30)
 
             # 3. gt proposal
-            batch_proposal_fw = np.asarray(batch_proposal_fw, dtype='int32')  # (B,T,120)
-            batch_proposal_bw = np.asarray(batch_proposal_bw, dtype='int32')  # (B,T,120)
+            batch_proposal_fw = np.asarray(batch_proposal_fw, dtype='int32')  # (1,T,120)
+            batch_proposal_bw = np.asarray(batch_proposal_bw, dtype='int32')  # (1,T,120)
             
             # 4. 用于指示哪个时间步的提议符合Caption的条件
-            batch_proposal_caption_fw = np.asarray(batch_proposal_caption_fw, dtype='int32')  # (B,T)
-            batch_proposal_caption_bw = np.asarray(batch_proposal_caption_bw, dtype='int32')  # (B,T)
+            batch_proposal_caption_fw = np.asarray(batch_proposal_caption_fw, dtype='int32')  # (1,T)
+            batch_proposal_caption_bw = np.asarray(batch_proposal_caption_bw, dtype='int32')  # (1,T)
             
 
             # serve as a tuple
