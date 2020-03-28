@@ -211,12 +211,9 @@ class DataProvision:
                 if end > end_time or start > end_time:
                     continue
                 
-                # 计算正向时gt起始时间和结束时间在特征序列上对应的位置
+                # 计算正向时gt起始时间，结束时间，中间时间在特征序列上对应的位置
                 end_feat_id = max(int(round(end*feature_len/duration)-1), 0)  # 正向Gt结束时间对应特征序列上的位置
                 start_feat_id = max(int(round(start*feature_len/duration) - 1), 0)  # 正向GT开始时间对应特征序列上的位置
-
-                # center: 1/2 * (start+end) : 求出动作提议的中心点
-                # center / duration : 求出中点在duration的百分比
                 mid_feature_id = int(round(((1.-self._options['proposal_tiou_threshold'])*end + self._options['proposal_tiou_threshold']*start) * feature_len / duration)) - 1
                 mid_feature_id = max(0, mid_feature_id)   # 正向中心时间对应特征序列上的位置
 
