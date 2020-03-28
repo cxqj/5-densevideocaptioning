@@ -835,5 +835,7 @@ class CaptionModel(object):
 
 
         return event_c3d_sequence, event_c3d_mask   # (N,110,500),(N,110)
+    
+    
 
     
