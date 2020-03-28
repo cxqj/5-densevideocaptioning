@@ -375,7 +375,7 @@ class CaptionModel(object):
         proposal_bw = tf.placeholder(tf.int32, [None, None, self.options['num_anchors']], name='proposal_bw')  # (B,T,120)
         inputs['proposal_bw'] = proposal_bw  # 反向 GT
 
-        # 在进行Caption时需要选取前N个proposal进行Caption,保存用于做caption的提议
+        # 在进行Caption时需要选取前N个proposal进行Caption,保存用于做caption的提议，这个值是什么样子的？？
         ## proposal to feed into captioning module, i choose high tiou proposals for training captioning module, forward pass
         proposal_caption_fw = tf.placeholder(tf.int32, [None, None], name='proposal_caption_fw')  # (B,T)
         inputs['proposal_caption_fw'] = proposal_caption_fw  # 前向 Caption GT
@@ -551,7 +551,7 @@ class CaptionModel(object):
         feat_len = tf.shape(video_feat_fw)[1]   # T 
         
         # 通过boolean_mask函数选取对应位置，由于正向时，时序位置和boolean_mask的位置是对应的
-        forward_indices = tf.boolean_mask(tf.range(feat_len), boolean_mask)  # tf.boolean_mask直接返回对应mask位置的值
+        forward_indices = tf.boolean_mask(tf.range(feat_len), boolean_mask)  # tf.boolean_mask直接返回对应mask位置的值，返回的是tensor值
         
         # rnn_outputs_fw_reshape : (N,512)
         event_feats_fw = tf.boolean_mask(rnn_outputs_fw_reshape, boolean_mask)  
@@ -578,7 +578,7 @@ class CaptionModel(object):
         # max_proposal_len = 110   提议对应的特征 (N,110,500)
         event_c3d_seq, _ = self.get_c3d_seq(video_feat_fw[0], start_ids, end_ids, self.options['max_proposal_len']) 
         
-        #不太明白上下文特征的选取？？？ ,好像没有用到
+        
         context_feats_fw = tf.gather_nd(rnn_outputs_fw_reshape, tf.expand_dims(start_ids, axis=-1))  # (T,512),(T,1) 
         context_feats_bw = tf.gather_nd(rnn_outputs_bw_reshape, tf.expand_dims(feat_len-1-end_ids, axis=-1))
 
@@ -586,9 +586,8 @@ class CaptionModel(object):
         proposal_feats = event_c3d_seq
 
         # corresponding caption ground truth (batch size  = 1)
-        # caption : (B,T,30)
         caption_proposed = tf.boolean_mask(caption[0], boolean_mask, name='caption_proposed')  # (N,30)
-        caption_mask_proposed = tf.boolean_mask(caption_mask[0], boolean_mask, name='caption_mask_proposed')
+        caption_mask_proposed = tf.boolean_mask(caption_mask[0], boolean_mask, name='caption_mask_proposed')  # (N,30)
 
         # the number of proposal-caption pairs for training
         n_proposals = tf.shape(caption_proposed)[0]   # 满足条件的提议个数
@@ -623,7 +622,7 @@ class CaptionModel(object):
             # initialize memory cell and hidden output, note that the returned state is a tuple containing all states for each cell in MultiRNNCell
             state = multi_rnn_cell_caption.zero_state(batch_size=batch_size, dtype=tf.float32)
 
-            # proposal_feats = event_c3d_seq = (N,110,512)--> (Nx110,512)
+            # (N,110,512)--> (Nx110,512)
             proposal_feats_reshape = tf.reshape(proposal_feats, [-1, self.options['video_feat_dim']], name='proposal_feats_reshape')
 
             # event_feats_fw : (N,512)
@@ -801,6 +800,7 @@ class CaptionModel(object):
     # 这里面是经典的tensorflow中的循环的写法，可以借鉴一下
     """get c3d proposal representation (feature sequence), given start end feature ids
        video_feat_sequence : (B,T,C)
+       # start_ids 和 end_ids中包含有N个满足条件的提议的起止时间
        start_ids : 开始时间列表
        end_ids : 结束时间列表
        max_clip_len : 110 (对于不到110的，padding到110)
@@ -841,6 +841,6 @@ class CaptionModel(object):
         _, event_c3d_sequence, event_c3d_mask = tf.while_loop(condition, body, loop_vars=[ind, event_c3d_sequence, event_c3d_mask], shape_invariants=[ind.get_shape(), tf.TensorShape([None, None, self.options['video_feat_dim']]), tf.TensorShape([None, None])])
 
 
-        return event_c3d_sequence, event_c3d_mask   # 只需要 event_c3d_sequence，event_c3d_mask没有用到
+        return event_c3d_sequence, event_c3d_mask   # (N,110,500),(N,110)
 
     
