@@ -101,7 +101,7 @@ class DataProvision:
         paragraph_length = []  # T
         caption_length = []
         for captions in batch_paragraph:
-            paragraph_length.append(len(captions))   # caption 数 ： T
+            paragraph_length.append(len(captions))   # feat_len
             cap_len = []   # 记录每一个时间点的caption长度
             for caption in captions:
                 cap_len.append(len(caption))  
