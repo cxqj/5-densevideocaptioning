@@ -10,7 +10,6 @@ class CaptionModel(object):
 
     def __init__(self, options):
         self.options = options
-        # 用于初始化词嵌入矩阵
         self.initializer = tf.random_uniform_initializer(
             minval = - self.options['init_scale'],  # 0.08
             maxval = self.options['init_scale'])
@@ -194,7 +193,7 @@ class CaptionModel(object):
         word_confidences = tf.expand_dims(tf.fill([eval_batch_size], 1.), axis=-1)
 
         # initial state of caption generation
-        initial_state = multi_rnn_cell_caption.zero_state(batch_size=eval_batch_size, dtype=tf.float32)
+        initial_state = multi_rnn_cell_caption.zero_state(batch_size=eval_batch_size, dtype=tf.float32)  # N
         state = initial_state
 
         with tf.variable_scope('caption_module', reuse=reuse) as caption_scope:
@@ -326,11 +325,8 @@ class CaptionModel(object):
                 word_id = tf.argmax(softmax, axis=-1)  # (N,) , 用argmax取id
                 word_confidence = tf.reduce_max(softmax, axis=-1)  # (N,) ， 用reduce_max 取置信度
                 
-                # 逐渐保存生成的结果
-                # word_ids : (N,1)--->(N,2)--->(N,3)........
+               
                 word_ids = tf.concat([word_ids, tf.expand_dims(word_id, axis=-1)], axis=-1)
-                
-                # word_confidences : (N,1)-->(N,2)-->(N,3).......
                 word_confidences = tf.concat([word_confidences, tf.expand_dims(word_confidence, axis=-1)], axis=-1)
 
         #sentence_confidences = tf.reduce_sum(tf.log(tf.clip_by_value(word_confidences, 1e-20, 1.)), axis=-1)
@@ -355,10 +351,6 @@ class CaptionModel(object):
         outputs = {}
 
         #******************** Define Proposal Module ******************#
-
-        ## dim1: batch, dim2: video sequence length, dim3: video feature dimension
-        ## video feature sequence
-        #---------------------------------------定义输入的占位符------------------------------------#
         # forward video feature sequence
         video_feat_fw = tf.placeholder(tf.float32, [None, None, self.options['video_feat_dim']], name='video_feat_fw')  # (B,T,C)
         inputs['video_feat_fw'] = video_feat_fw
@@ -557,7 +549,8 @@ class CaptionModel(object):
         event_feats_fw = tf.boolean_mask(rnn_outputs_fw_reshape, boolean_mask)  
         # proposal_caption_bw_reshape : (T)
       
-        # 反向时，时序位置和boolean_mask中的位置不是对应的，因此需要用boolean_mask选取出proposal_caption_bw_reshape对应位置的值
+        # 反向时，时序位置和boolean_mask中的位置不是对应的，反向时直接存储的是满足条件的时序位置。因此用boolean_mask
+        # 直接选取出proposal_caption_bw_reshape对应位置的值
         backward_indices = tf.boolean_mask(proposal_caption_bw_reshape, boolean_mask)
         """
         tf.gather:
@@ -712,7 +705,7 @@ class CaptionModel(object):
 
                             context_feats_transform = event_hidden_feats   # (N,1024)
 
-                            # 将attention后的特征投影到同一空间(1024维)
+                       
                             proposal_feats_transform = tf.contrib.layers.fully_connected(
                                 inputs = attended_proposal_feat_reshape,
                                 num_outputs = 2*self.options['rnn_size'],  # 1024
@@ -748,7 +741,7 @@ class CaptionModel(object):
 
 
                 # proposal feature embedded into word space
-                # 将提议特征用全连接层进行降维 (N,1024)--->(N,512)
+                # 将提议特征用全连接层进行降维 (N,2048)--->(N,512)
                 proposal_feat_embed = self.build_video_feat_embedding(proposal_feats_full)
 
                 # proposal_feat_embed : (N,512)
@@ -810,8 +803,8 @@ class CaptionModel(object):
         # 对于时长为T的视频，可能有s个满足条件的时间点
         ind = tf.constant(0)   
         N = tf.shape(start_ids)[0]  # 满足条件的时间点个数
-        event_c3d_sequence = tf.fill([0, max_clip_len, self.options['video_feat_dim']], 0.)    # (0,110,500)
-        event_c3d_mask = tf.fill([0, max_clip_len], 0.)   # (0,110)
+        event_c3d_sequence = tf.fill([0, max_clip_len, self.options['video_feat_dim']], 0.)    # (N,110,500)
+        event_c3d_mask = tf.fill([0, max_clip_len], 0.)   # (N,110)
         event_c3d_mask = tf.to_int32(event_c3d_mask)
 
         def condition(ind, event_c3d_sequence, event_c3d_mask):
