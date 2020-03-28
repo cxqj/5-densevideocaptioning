@@ -145,11 +145,11 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         
         '''calculate final score by summarizing forward score and backward score
         '''
-        proposal_score = np.zeros((feat_len, options['num_anchors']))  
+        proposal_score = np.zeros((feat_len, options['num_anchors'])) # (T,120)
         proposal_infos = []
 
         # 遍历某个batch_size的i*j个预设anchor
-        for i in range(feat_len):
+        for i in range(feat_len):  # 每个时间步的120个anchor共享相同的结束时刻
             pre_start = -1.
             for j in range(options['num_anchors']):
                 forward_score = proposal_score_fw[i,j]    # 前向得分
@@ -162,8 +162,8 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
                     continue
 
                 # backward
-                end_bw = duration - start   # 反向时间
-                i_bw = min(int(round((end_bw/duration)*feat_len)-1), feat_len-1)  # 反向时间在特征序列上的索引
+                end_bw = duration - start   # 时长-正向的时间起始 = 反向的结束
+                i_bw = min(int(round((end_bw/duration)*feat_len)-1), feat_len-1)  # 反向结束时间在特征序列上的索引
                 i_bw = max(i_bw, 0)
                 backward_score = proposal_score_bw[i_bw,j]   # 反向得分
 
@@ -173,6 +173,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
                     
                 
                 proposal_feats = batch_data['video_feat_fw'][0][feat_len-1-i_bw:i+1]
+                
                 proposal_infos.append({'timestamp':[start, end], 'score': proposal_score[i,j], 'event_hidden_feats': hidden_feat, 'proposal_feats': proposal_feats})
                             
                 pre_start = start
@@ -189,14 +190,14 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         print('Number of proposals: %d'%len(proposal_infos))
 
         # 
-        event_hidden_feats = [item['event_hidden_feats'] for item in proposal_infos]  # event_hidden_feats ： (1024,)
-        proposal_feats = [item['proposal_feats'] for item in proposal_infos]  # proposal_feats : (T,500)
+        event_hidden_feats = [item['event_hidden_feats'] for item in proposal_infos]  # (100,1024)
+        proposal_feats = [item['proposal_feats'] for item in proposal_infos]  #(100,p_len,500)
 
         
-        event_hidden_feats = np.array(event_hidden_feats, dtype='float32')  # (100.1024)
+        event_hidden_feats = np.array(event_hidden_feats, dtype='float32')  # (100,1024)
         
-        # 将所有提议的最大长度约束到110
-        proposal_feats, _ = process_batch_data(proposal_feats, options['max_proposal_len']) # max_proposal_len = 110  proposal_feats : (100,110,500)
+        # 将所有提议的长度约束到110
+        proposal_feats, _ = process_batch_data(proposal_feats, options['max_proposal_len']) # (100,110,500)
 
         # run session to get word ids
         # word_ids : (100,30)
@@ -347,7 +348,7 @@ def train(options):
     t_reg_loss = outputs['reg_loss']
     t_n_proposals = outputs['n_proposals']
 
-    
+    # 获取评价模型时的输入输出数据
     if options['evaluate_metric']:
         print('Build model for evaluating metric ...')
         """
@@ -487,6 +488,7 @@ def train(options):
     json.dump(json_worker_status, open(options['status_file'], 'w'))
 
 
+    #------------------------------对初始化的模型进行测试---------------------------------------#
     if options['eval_init']:
         print('Evaluating the initialized model ...')
         val_loss, val_proposal_loss, val_caption_loss = evaluation(options, data_provision, sess, inputs, t_loss_list)
@@ -534,7 +536,8 @@ def train(options):
                 feed_dict[inputs[key]] = value
             #  train_op = optimizer.apply_gradients(clip_grad_var)  优化loss
             #  summary : 所有的图摘要
-            _, summary, loss, proposal_loss, caption_loss, reg_loss, n_proposals = sess.run([train_op, t_summary, t_loss, t_proposal_loss, t_caption_loss, t_reg_loss, t_n_proposals], feed_dict=feed_dict)
+            _, summary, loss, proposal_loss, caption_loss, reg_loss, n_proposals = \
+            sess.run([train_op, t_summary, t_loss, t_proposal_loss, t_caption_loss, t_reg_loss, t_n_proposals], feed_dict=feed_dict)
 
             if 'print_debug' in options and options['print_debug']:
                 print('n_proposals: %d'%n_proposals)
@@ -542,9 +545,9 @@ def train(options):
             if iter == 0 and epoch == init_epoch:
                 smooth_loss = loss
             else:
-                smooth_loss = 0.9 * smooth_loss + 0.1 * loss   # ？？ 为什么要每次对loss进行这样的处理,对loss进行平滑？？
+                smooth_loss = 0.9 * smooth_loss + 0.1 * loss  
             
-            if iter % options['n_iters_display'] == 0:
+            if iter % options['n_iters_display'] == 0:  #1
                 print('iter: %d, epoch: %d/%d, \nlr: %.1E, loss: %.4f, proposal_loss: %.4f, caption_loss: %.4f'%(iter, epoch, max_epochs, lr, loss, proposal_loss, caption_loss))
                 train_summary_writer.add_summary(summary, iter + epoch * n_iters_per_epoch)  # iter+ epoch*n_iters_per_epoch : 总共第多少次迭代
                 jstatus = OrderedDict()
@@ -559,6 +562,7 @@ def train(options):
                 t0 = time.time()
                 json.dump(json_worker_status, open(status_file, 'w'))
             
+            # ------------------------------------------测试----------------------------------------#
             if (iter + 1) % eval_in_iters == 0:   # eval_in_iters = 10009
                 
                 print('Evaluating model ...')
@@ -574,8 +578,8 @@ def train(options):
 
                 jeval_results = OrderedDict()
                 jeval_results['loss'] = (val_loss, smooth_loss)  # 总loss，平滑后的loss
-                jeval_results['score'] = combined_score   # 平均得分
-                jeval_results['scores'] = all_scores  # 所有的每一种评价指标的得分
+                jeval_results['score'] = combined_score   # METEOR得分
+                jeval_results['scores'] = all_scores  # 每种评价指标得分
                 jeval_results['lr'] = lr
                 json_worker_status['eval_results'].append(jeval_results)
                 json.dump(json_worker_status, open(status_file, 'w'))
@@ -605,6 +609,7 @@ def train(options):
                     if options['evaluate_metric']:   
                         review_results = [result['score'] for result in eval_results[view_start_eval_id:view_end_eval_id]] 
                     
+                    # 如果从某一个epoch开始，评价指标没有上升或loss没有下降，则重新加载该epoch对应的模型并降低学习率
                     if view_start_eval_id >= 0:
                         # 用得分做评价
                         if options['evaluate_metric'] and review_results.index(max(review_results)) == 0:
