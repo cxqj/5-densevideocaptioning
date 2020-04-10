@@ -545,7 +545,7 @@ class CaptionModel(object):
         # 通过boolean_mask函数选取对应位置，由于正向时，时序位置和boolean_mask的位置是对应的
         forward_indices = tf.boolean_mask(tf.range(feat_len), boolean_mask)  # tf.boolean_mask直接返回对应mask位置的值，返回的是tensor值
         
-        # rnn_outputs_fw_reshape : (N,512)
+        # (N,512)
         event_feats_fw = tf.boolean_mask(rnn_outputs_fw_reshape, boolean_mask)  
         # proposal_caption_bw_reshape : (T)
       
@@ -561,7 +561,7 @@ class CaptionModel(object):
         # rnn_outputs_bw_reshape : (T,512)
         # 获取反向时对应位置的特征
         # backword_indices : (T)--> (T,1)
-        # (T,512),(T,1)
+        # (N,512)
         event_feats_bw = tf.gather_nd(rnn_outputs_bw_reshape, tf.expand_dims(backward_indices, axis=-1))
         
         # 开始和结束时间列表
