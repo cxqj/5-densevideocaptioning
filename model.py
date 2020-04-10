@@ -571,12 +571,12 @@ class CaptionModel(object):
         # max_proposal_len = 110   提议对应的特征 (N,110,500)
         event_c3d_seq, _ = self.get_c3d_seq(video_feat_fw[0], start_ids, end_ids, self.options['max_proposal_len']) 
         
-        
-        context_feats_fw = tf.gather_nd(rnn_outputs_fw_reshape, tf.expand_dims(start_ids, axis=-1))  # (T,512),(T,1) 
-        context_feats_bw = tf.gather_nd(rnn_outputs_bw_reshape, tf.expand_dims(feat_len-1-end_ids, axis=-1))
+        # 没有用到这两个
+        context_feats_fw = tf.gather_nd(rnn_outputs_fw_reshape, tf.expand_dims(start_ids, axis=-1))  # (N,512)
+        context_feats_bw = tf.gather_nd(rnn_outputs_bw_reshape, tf.expand_dims(feat_len-1-end_ids, axis=-1))  #(N,512)
 
         # proposal feature sequences
-        proposal_feats = event_c3d_seq
+        proposal_feats = event_c3d_seq   #(N,110,500)
 
         # corresponding caption ground truth (batch size  = 1)
         caption_proposed = tf.boolean_mask(caption[0], boolean_mask, name='caption_proposed')  # (N,30)
@@ -648,7 +648,7 @@ class CaptionModel(object):
                 h_state_tile = tf.tile(h_state, [1, self.options['max_proposal_len']])  # (N,110x1024) 
                 h_state_reshape = tf.reshape(h_state_tile, [-1, self.options['num_rnn_layers']*self.options['rnn_size']]) # (Nx110,1024)
                 
-                # proposal_feats_reshape : (Nx110,500)       # 视频特征
+                # proposal_feats_reshape : (Nx110,512)       # 视频特征
                 # h_state_reshape ： (Nx110,1024)     # 隐状态
                 # event_hidden_feats_reshape : (Nx110,1024)  # 上下文特征
                 
@@ -719,8 +719,8 @@ class CaptionModel(object):
                             
                              # word_embed : (N,512)   # 词嵌入特征
                              # h_state : (N,1024)     # hidden state
-                             # context_feats_transform : (N,1024)  # 对应经lstm编码后整个视频的状态也就是上下文信息
-                             # proposal_feats_transform : (N,1024) # 提议原始c3d特征
+                             # context_feats_transform : (N,1024)  # 上下文信息
+                             # proposal_feats_transform : (N,1024) # attened后的c3d特征
                                 
                              # (N,3584)--> (N,1024)
                             gate = tf.contrib.layers.fully_connected(
