@@ -87,7 +87,7 @@ class CaptionModel(object):
             '''video feature sequence encoding: forward pass
             '''
             with tf.variable_scope('video_encoder_fw', reuse=reuse) as scope:
-                sequence_length = tf.expand_dims(tf.shape(video_feat_fw)[1], axis=0)
+                sequence_length = tf.expand_dims(tf.shape(video_feat_fw)[1], axis=0)  #(1,T)
                 initial_state = rnn_cell_video_fw.zero_state(batch_size=batch_size, dtype=tf.float32)
                 
                 rnn_outputs_fw, _ = tf.nn.dynamic_rnn(
@@ -96,7 +96,7 @@ class CaptionModel(object):
                     sequence_length=sequence_length, 
                     initial_state=initial_state,
                     dtype=tf.float32
-                )
+                )  #(1,T,512)
                 
             # (T,512)   
             rnn_outputs_fw_reshape = tf.reshape(rnn_outputs_fw, [-1, self.options['rnn_size']], name='rnn_outputs_fw_reshape')
@@ -332,8 +332,8 @@ class CaptionModel(object):
         #sentence_confidences = tf.reduce_sum(tf.log(tf.clip_by_value(word_confidences, 1e-20, 1.)), axis=-1)
         word_confidences = tf.log(tf.clip_by_value(word_confidences, 1e-20, 1.))
 
-        outputs['word_ids'] = word_ids
-        outputs['word_confidences'] = word_confidences
+        outputs['word_ids'] = word_ids   #(N,)
+        outputs['word_confidences'] = word_confidences #(N,)
 
         return inputs, outputs
 
