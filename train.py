@@ -59,7 +59,7 @@ def evaluation(options, data_provision, sess, inputs, t_loss):
           proposal_weight : (120,2)
           caption : (1,T,30)
           caption_mask : (1,T,30)
-          rnn_drop
+          rnn_drop : 0.
     """
     for batch_data in data_provision.iterate_batch('val', batch_size):
         print('Evaluating batch: #%d'%count)
@@ -133,6 +133,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         vid = val_ids[count]
         print('video id: %s'%vid)
         # 输入视频特征，输出每个anchor的得分和编码后的视频
+        
         proposal_score_fw, proposal_score_bw, rnn_outputs_fw, rnn_outputs_bw = sess.run([proposal_outputs['proposal_score_fw'], 
                                                                                          proposal_outputs['proposal_score_bw'], 
                                                                                          proposal_outputs['rnn_outputs_fw'],
@@ -148,7 +149,7 @@ def evaluation_metric_greedy(options, data_provision, sess, proposal_inputs, cap
         proposal_score = np.zeros((feat_len, options['num_anchors'])) # (T,120)
         proposal_infos = []
 
-        # 遍历某个batch_size的i*j个预设anchor
+   
         for i in range(feat_len):  # 每个时间步的120个anchor共享相同的结束时刻
             pre_start = -1.
             for j in range(options['num_anchors']):
@@ -513,7 +514,7 @@ def train(options):
     for epoch in range(init_epoch, max_epochs):
         
         # manually set when to decay learning rate
-        if not options['auto_lr_decay']:
+        if not options['auto_lr_decay']:   # auto_lr_decay = True
             if epoch == next_epoch_to_decay:
                 if len(n_epoch_to_decay) == 0:
                     next_epoch_to_decay = -1
